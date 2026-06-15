@@ -1,0 +1,26 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Kanban Game · Jugar">
+  <div class="container" style="max-width:100%">
+    <div class="page-loading" id="loading"><span class="spinner"></span> Cargando…</div>
+    <div id="mount"></div>
+  </div>
+
+  <script>
+    import { requireAuth } from '../lib/session.js';
+    import { GameBoard } from '../components/game-board.js';
+
+    const id = new URLSearchParams(location.search).get('id');
+    if (!id) { window.location.replace('/dashboard'); }
+
+    const { user, profile } = await requireAuth();
+    document.getElementById('loading').hidden = true;
+
+    const el = new GameBoard();
+    el.boardId = id;
+    el.me = { uid: user.uid, isAdmin: profile.role === 'admin' };
+    document.getElementById('mount').appendChild(el);
+  </script>
+</Layout>

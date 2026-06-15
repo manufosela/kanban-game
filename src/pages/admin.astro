@@ -1,0 +1,23 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Kanban Game · Administración">
+  <div class="container">
+    <div class="page-loading" id="loading"><span class="spinner"></span> Comprobando permisos…</div>
+    <div id="mount" hidden></div>
+  </div>
+
+  <script>
+    import { requireAuth } from '../lib/session.js';
+    import { AdminPanel } from '../components/admin-panel.js';
+
+    const { user, profile } = await requireAuth({ requireAdmin: true });
+    document.getElementById('loading').hidden = true;
+    const mount = document.getElementById('mount');
+    mount.hidden = false;
+    const el = new AdminPanel();
+    el.me = { uid: user.uid, profile };
+    mount.appendChild(el);
+  </script>
+</Layout>

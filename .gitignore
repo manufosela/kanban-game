@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# build
+dist/
+.astro/
+
+# env (config pública real; usar .env.example como plantilla)
+.env
+.env.local
+
+# firebase
+.firebase/
+*-debug.log
+firebase-debug.log
+database-debug.log
+serviceAccountKey.json
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/

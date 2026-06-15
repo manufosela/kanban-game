@@ -1,0 +1,70 @@
+---
+const { title = 'Kanban Game', header = true } = Astro.props;
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>{title}</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    {header && (
+      <header class="app-header" id="appHeader" hidden>
+        <a class="brand" href="/dashboard">
+          <span class="logo">🃏</span> Kanban Game
+        </a>
+        <span class="spacer"></span>
+        <nav id="appNav"></nav>
+        <div class="user-chip" id="userChip"></div>
+      </header>
+    )}
+    <main>
+      <slot />
+    </main>
+
+    <style is:global>
+      @import '../styles/global.css';
+      main { display: block; }
+    </style>
+
+    {header && (
+      <script>
+        import { watchSession, signOutUser } from '../lib/session.js';
+
+        const headerEl = document.getElementById('appHeader');
+        const navEl = document.getElementById('appNav');
+        const chipEl = document.getElementById('userChip');
+
+        watchSession(({ user, profile }) => {
+          if (!user || !profile) { headerEl.hidden = true; return; }
+          headerEl.hidden = false;
+
+          const links = [
+            { href: '/dashboard', label: 'Mis tableros' },
+          ];
+          if (profile.role === 'admin') links.push({ href: '/admin', label: 'Administración' });
+
+          const path = window.location.pathname;
+          navEl.innerHTML = links
+            .map((l) => `<a href="${l.href}" ${path.startsWith(l.href) ? 'style="color:var(--c-text);font-weight:700"' : ''}>${l.label}</a>`)
+            .join('');
+
+          chipEl.innerHTML = `
+            ${profile.photoURL ? `<img src="${profile.photoURL}" alt="" referrerpolicy="no-referrer">` : ''}
+            <span>${profile.name || profile.email}</span>
+            ${profile.role === 'admin' ? '<span class="tag admin">admin</span>' : ''}
+            <button class="btn-sm" id="logoutBtn">Salir</button>
+          `;
+          document.getElementById('logoutBtn').onclick = async () => {
+            await signOutUser();
+            window.location.replace('/');
+          };
+        });
+      </script>
+    )}
+  </body>
+</html>

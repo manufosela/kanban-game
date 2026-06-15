@@ -1,0 +1,47 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".validate": "newData.hasChildren(['name', 'email', 'role'])",
+        "role": {
+          ".validate": "newData.val() === 'admin' || newData.val() === 'player'"
+        }
+      }
+    },
+
+    "teams": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$teamId": {
+        ".validate": "newData.hasChildren(['name'])"
+      }
+    },
+
+    "boards": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$boardId": {
+        ".validate": "newData.hasChildren(['name'])"
+      }
+    },
+
+    "games": {
+      ".read": "auth != null",
+      "$boardId": {
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('boards').child($boardId).child('roleAssignments').child(auth.uid).exists())"
+      }
+    },
+
+    "results": {
+      ".read": "auth != null",
+      "$boardId": {
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('boards').child($boardId).child('roleAssignments').child(auth.uid).exists())"
+      }
+    }
+  }
+}
