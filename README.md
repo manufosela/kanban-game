@@ -5,7 +5,7 @@ y la **Ronda 2 con límite de WIP** por columna. Login con Google, gestión de e
 tableros con columnas configurables, motor de juego por turnos con dados y métricas con gráficas.
 
 - **Stack:** Astro (estático) · Firebase (Auth Google · Realtime Database · Hosting) · Vanilla JS (ES2025) · Web Components con Lit. Sin TypeScript, sin Tailwind, sin librerías de gráficas (SVG a mano).
-- **Producción:** https://kanban-game-a51ad.web.app
+- **Producción:** https://el-juego-kanban.web.app
 
 ## Puesta en marcha (local)
 

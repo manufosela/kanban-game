@@ -5,6 +5,6 @@ import { defineConfig } from 'astro/config';
 // por lo que no se necesita ninguna integración de framework para SSR.
 export default defineConfig({
   output: 'static',
-  site: 'https://kanban-game-a51ad.web.app',
+  site: 'https://el-juego-kanban.web.app',
   devToolbar: { enabled: false },
 });
