@@ -36,10 +36,17 @@ export class ResultsView extends LitElement {
     return b ? { name: this.colName(columns, b.colId), avg: b.avg } : null;
   }
 
+  /** Todas las rondas archivadas, ordenadas por número de ronda. */
+  archivedRounds() {
+    const res = this.results || {};
+    return Object.values(res)
+      .filter((r) => r && typeof r === 'object' && r.snapshots)
+      .sort((a, b) => (a.round || 0) - (b.round || 0));
+  }
+
   render() {
     if (!this.board) return html`<div class="page-loading"><span class="spinner"></span> Cargando…</div>`;
-    const r1 = this.results?.round1;
-    const r2 = this.results?.round2;
+    const rounds = this.archivedRounds();
     return html`
       <div class="flex-between">
         <div>
@@ -50,7 +57,7 @@ export class ResultsView extends LitElement {
       </div>
 
       ${this.renderCurrent()}
-      ${(r1 || r2) ? this.renderComparison(r1, r2) : ''}
+      ${rounds.length ? this.renderComparison(rounds) : ''}
       ${this.chartStyles()}
     `;
   }
@@ -64,7 +71,7 @@ export class ResultsView extends LitElement {
     return html`
       <div class="card stack" style="margin-top:14px">
         <div class="flex-between">
-          <h2 style="margin:0">${g.round === 2 ? 'Ronda 2 · con WIP' : 'Ronda 1 · sin WIP'} ${g.status === 'finished' ? '(terminada)' : `(turno ${g.turn}/${R.MAX_TURNS})`}</h2>
+          <h2 style="margin:0">Ronda ${g.round} · ${g.wipEnabled ? 'con WIP' : 'sin WIP'} ${g.status === 'finished' ? '(terminada)' : `(turno ${g.turn}/${R.MAX_TURNS})`}</h2>
           <div class="row">
             <span class="tag">✅ Done: <strong>${R.doneTotal(g)}</strong></span>
             ${bn ? html`<span class="tag role-QA">🍶 Cuello de botella: ${bn.name}</span>` : ''}
@@ -79,30 +86,45 @@ export class ResultsView extends LitElement {
     `;
   }
 
-  renderComparison(r1, r2) {
-    const bn1 = r1 ? this.bottleneckOf(r1.snapshots, r1.columns) : null;
-    const bn2 = r2 ? this.bottleneckOf(r2.snapshots, r2.columns) : null;
-    const diff = (r1 && r2) ? (r2.doneTotal - r1.doneTotal) : null;
+  fmtDur(s) { return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '—'; }
+
+  renderComparison(rounds) {
+    const data = rounds.map((r) => ({ ...r, bn: this.bottleneckOf(r.snapshots, r.columns) }));
+    const maxDone = Math.max(...data.map((r) => r.doneTotal || 0));
     return html`
       <div class="card stack" style="margin-top:14px">
-        <h2 style="margin:0">Comparativa de rondas</h2>
-        <table class="cmp">
-          <thead><tr><th></th><th>Ronda 1 · sin WIP</th><th>Ronda 2 · con WIP</th></tr></thead>
-          <tbody>
-            <tr><td>Total en Done</td><td>${r1 ? r1.doneTotal : '—'}</td><td>${r2 ? r2.doneTotal : '—'}</td></tr>
-            <tr><td>Cuello de botella</td><td>${bn1?.name || '—'}</td><td>${bn2?.name || '—'}</td></tr>
-          </tbody>
-        </table>
-        ${diff != null ? html`<p class="${diff >= 0 ? 'pos' : 'neg'}" style="margin:0">
-          Diferencia (R2 − R1): <strong>${diff >= 0 ? '+' : ''}${diff}</strong> historias.
-          ${diff > 0 ? ' Limitar el WIP mejoró el resultado.' : diff < 0 ? ' El WIP redujo el total entregado, pero observa el flujo.' : ' Mismo total; compara el flujo.'}
-        </p>` : html`<p class="muted">Juega ambas rondas para ver la diferencia.</p>`}
+        <h2 style="margin:0">Comparativa de rondas (${data.length})</h2>
+        <div style="overflow-x:auto">
+          <table class="cmp">
+            <thead><tr><th></th>
+              ${data.map((r) => html`<th>Ronda ${r.round}<br><span class="muted">${r.wipEnabled ? 'con WIP' : 'sin WIP'}</span></th>`)}
+            </tr></thead>
+            <tbody>
+              <tr><td>Total en Done</td>${data.map((r) => html`<td class=${r.doneTotal === maxDone ? 'pos' : ''}><strong>${r.doneTotal}</strong></td>`)}</tr>
+              <tr><td>Cuello de botella</td>${data.map((r) => html`<td>${r.bn?.name || '—'}</td>`)}</tr>
+              <tr><td>Duración</td>${data.map((r) => html`<td>${this.fmtDur(r.durationSec)}</td>`)}</tr>
+            </tbody>
+          </table>
+        </div>
+        ${this.renderDiffNote(data)}
         <div class="grid grid-2">
-          ${r1 ? html`<div><h3>Flujo Ronda 1</h3><kbg-cfd .snapshots=${r1.snapshots} .columns=${r1.columns}></kbg-cfd></div>` : ''}
-          ${r2 ? html`<div><h3>Flujo Ronda 2</h3><kbg-cfd .snapshots=${r2.snapshots} .columns=${r2.columns}></kbg-cfd></div>` : ''}
+          ${data.map((r) => html`<div><h3>Flujo Ronda ${r.round} · ${r.wipEnabled ? 'con WIP' : 'sin WIP'}</h3><kbg-cfd .snapshots=${r.snapshots} .columns=${r.columns}></kbg-cfd></div>`)}
         </div>
       </div>
     `;
+  }
+
+  renderDiffNote(data) {
+    const noWip = data.find((r) => !r.wipEnabled);
+    const wip = data.find((r) => r.wipEnabled);
+    if (noWip && wip) {
+      const diff = wip.doneTotal - noWip.doneTotal;
+      return html`<p class="${diff >= 0 ? 'pos' : 'neg'}" style="margin:0">
+        Con WIP (R${wip.round}) vs sin WIP (R${noWip.round}): <strong>${diff >= 0 ? '+' : ''}${diff}</strong> historias.
+        ${diff > 0 ? ' Limitar el WIP mejoró el resultado.' : diff < 0 ? ' El WIP redujo el total entregado, pero observa el flujo.' : ' Mismo total; compara el flujo.'}
+      </p>`;
+    }
+    return html`<p class="muted" style="margin:0">Juega una ronda con WIP y otra sin WIP para ver la diferencia.</p>`;
   }
 
   chartStyles() {

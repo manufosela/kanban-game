@@ -33,13 +33,14 @@ export function watchGame(boardId, cb) {
 }
 
 /** Inicializa (o reinicia) la partida de una ronda. */
-export async function startGame(board, round) {
+export async function startGame(board, round, wipEnabled = round === 2, timeLimitMinutes = null) {
   const cols = R.orderedColumns(board.columns).map((c, i) => ({
     id: c.id, name: c.name, order: i, wipLimit: c.wipLimit ?? null,
   }));
+  const limitMin = Number(timeLimitMinutes) > 0 ? Number(timeLimitMinutes) : null;
   const state = {
     round,
-    wipEnabled: round === 2,
+    wipEnabled: !!wipEnabled,
     turn: 1,
     step: STEP.PM_ADD,
     status: 'playing',
@@ -49,7 +50,10 @@ export async function startGame(board, round) {
     nextNumber: 1,
     dice: null,
     snapshots: {},
-    log: [{ t: 0, text: `Comienza la Ronda ${round}${round === 2 ? ' (con WIP)' : ' (sin WIP)'}.` }],
+    startedAt: Date.now(),
+    endedAt: null,
+    timeLimit: limitMin ? limitMin * 60 : null, // segundos
+    log: [{ t: 0, text: `Comienza la Ronda ${round}${wipEnabled ? ' (con WIP)' : ' (sin WIP)'}.` }],
   };
   await runTransaction(ref(db, `games/${board.id}`), () => state);
   // Persistir también la ronda activa en el tablero.
@@ -93,11 +97,16 @@ export async function applyAction(boardId, action) {
 
 /** Guarda los resultados de una ronda en /results/{boardId}/round{N}. */
 export async function archiveResults(boardId, state) {
+  const durationSec = state.startedAt && state.endedAt
+    ? Math.round((state.endedAt - state.startedAt) / 1000)
+    : null;
   await set(ref(db, `results/${boardId}/round${state.round}`), {
     round: state.round,
+    wipEnabled: !!state.wipEnabled,
     columns: state.columns,
     snapshots: state.snapshots || {},
     doneTotal: R.doneTotal(state),
+    durationSec,
     finishedAt: Date.now(),
   });
 }
@@ -115,6 +124,7 @@ function endTurn(s) {
   s.snapshots = { ...(s.snapshots || {}), [s.turn]: snap };
   if (s.turn >= R.MAX_TURNS) {
     s.status = 'finished';
+    s.endedAt = Date.now();
     pushLog(s, `Fin de la Ronda ${s.round}. Total en Done: ${R.doneTotal(s)}.`);
   } else {
     s.turn += 1;

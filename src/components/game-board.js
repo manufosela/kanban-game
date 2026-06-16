@@ -6,6 +6,7 @@ import {
 import * as R from '../lib/rules.js';
 import { toast } from '../lib/ui.js';
 import './dice-roller.js';
+import './round-timer.js';
 
 const COL_ACCENTS = ['#8a94a6', '#6c8cff', '#4dd0e1', '#b07cff', '#ffb74d', '#4db6ac', '#66bb6a'];
 
@@ -69,15 +70,25 @@ export class GameBoard extends LitElement {
         <p class="muted">La partida todavía no ha comenzado.</p>
         ${this.isAdmin ? html`
           <div class="row" style="justify-content:center">
-            <button class="btn-primary" @click=${() => this.start(1)}>▶ Iniciar Ronda 1 (sin WIP)</button>
-            <button class="btn-primary" @click=${() => this.start(2)}>▶ Iniciar Ronda 2 (con WIP)</button>
-          </div>` : html`<p>Pide a tu administrador que inicie una ronda.</p>`}
+            <button class="btn-primary" @click=${() => this.start(1, false)}>▶ Iniciar Ronda 1 (sin WIP)</button>
+            <button class="btn-primary" @click=${() => this.start(2, true)}>▶ Iniciar Ronda 2 (con WIP)</button>
+          </div>
+          <p class="muted" style="margin:0">Para más rondas o configurar el tiempo, usa Administración → Tableros → Configurar.</p>`
+          : html`<p>Pide a tu administrador que inicie una ronda.</p>`}
         <a href="/dashboard">← Volver</a>
       </div>
       ${this.styles()}
     `;
   }
-  async start(round) { await startGame(this.board, round); toast(`Ronda ${round} iniciada`, 'success'); }
+  async start(round, wipEnabled = round === 2) {
+    await startGame(this.board, round, wipEnabled, this.board?.timeLimitMinutes ?? null);
+    toast(`Ronda ${round} iniciada`, 'success');
+  }
+  onTimeUp() {
+    if (this._toldTimeup) return;
+    this._toldTimeup = true;
+    toast('⏱ ¡Tiempo de la ronda agotado! Podéis terminar la ronda cuando queráis.', 'warning', 7000);
+  }
 
   renderTopBar() {
     const g = this.game;
@@ -88,12 +99,13 @@ export class GameBoard extends LitElement {
         <div>
           <a href="/dashboard" class="muted">← Tableros</a>
           <h1 style="margin:4px 0">${this.board.name}</h1>
-          <span class="tag ${g.round === 2 ? 'role-QA' : ''}">${g.round === 2 ? 'Ronda 2 · con WIP' : 'Ronda 1 · sin WIP'}</span>
+          <span class="tag ${g.wipEnabled ? 'role-QA' : ''}">Ronda ${g.round} · ${g.wipEnabled ? 'con WIP' : 'sin WIP'}</span>
           ${this.myGameRole ? html`<span class="tag role-${this.myGameRole}">Tu rol: ${this.myGameRole}</span>` : (this.isAdmin ? html`<span class="tag admin">facilitador</span>` : '')}
         </div>
         <div class="status">
           <div class="turn">Turno <strong>${g.turn}</strong> / ${R.MAX_TURNS}</div>
           <div class="done">✅ Done: <strong>${R.doneTotal(g)}</strong></div>
+          ${g.startedAt ? html`<kbg-round-timer .startedAt=${g.startedAt} .endedAt=${g.endedAt || null} .timeLimit=${g.timeLimit || null} @timeup=${() => this.onTimeUp()}></kbg-round-timer>` : ''}
         </div>
         <div class="stepinfo ${youAct ? 'you' : ''}">
           <div class="muted">${STEP_LABEL[g.step]}</div>
@@ -258,9 +270,8 @@ export class GameBoard extends LitElement {
       <div class="row" style="justify-content:center">
         <a class="btn btn-primary" href="/results?id=${this.boardId}">📊 Ver resultados y gráficas</a>
         ${this.isAdmin ? html`
-          <button @click=${() => this.start(this.game.round === 1 ? 2 : 1)}>
-            ▶ Iniciar Ronda ${this.game.round === 1 ? 2 : 1}
-          </button>` : ''}
+          <button @click=${() => this.start(this.game.round + 1, false)}>▶ Ronda ${this.game.round + 1} sin WIP</button>
+          <button @click=${() => this.start(this.game.round + 1, true)}>▶ Ronda ${this.game.round + 1} con WIP</button>` : ''}
       </div>
     </div>`;
   }

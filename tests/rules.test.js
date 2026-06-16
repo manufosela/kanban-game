@@ -171,6 +171,17 @@ describe('paso 5: PM valida -> Done', () => {
   });
 });
 
+describe('WIP desacoplado del número de ronda', () => {
+  it('aplica WIP en cualquier ronda si wipEnabled=true', () => {
+    const s = buildState({ round: 3, wipEnabled: true });
+    expect(R.wipLimitFor(s, ID.analisis)).toBe(2);
+  });
+  it('no aplica WIP aunque sea ronda 2 si wipEnabled=false', () => {
+    const s = buildState({ round: 2, wipEnabled: false });
+    expect(R.wipLimitFor(s, ID.analisis)).toBe(Infinity);
+  });
+});
+
 describe('métricas', () => {
   it('snapshot cuenta por columna y total done', () => {
     let s = buildState();

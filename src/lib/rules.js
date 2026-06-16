@@ -96,14 +96,14 @@ export function countInColumn(cards, colId) {
 
 /**
  * Límite WIP efectivo de una columna para el estado actual.
- *  - Ronda 1 (o wipEnabled=false): sin límite.
+ *  - wipEnabled=false: sin límite (independientemente del número de ronda).
  *  - Backlog y Done: nunca tienen límite.
  *  - wipLimit null/0: sin límite.
  */
 export function wipLimitFor(state, colId) {
   const cols = orderedColumns(state.columns);
   const a = anchors(cols);
-  if (state.round !== 2 || state.wipEnabled === false) return Infinity;
+  if (!state.wipEnabled) return Infinity;
   if (colId === a.id.backlog || colId === a.id.done) return Infinity;
   const col = cols.find((c) => c.id === colId);
   if (!col || col.wipLimit == null || col.wipLimit <= 0) return Infinity;

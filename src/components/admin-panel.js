@@ -192,12 +192,10 @@ export class AdminPanel extends LitElement {
         </div>
 
         <div class="row" style="gap:8px">
-          <label style="margin:0">Ronda activa:</label>
-          <select @change=${(e) => this.setRound(b, Number(e.target.value))}>
-            <option value="1" ?selected=${b.round === 1}>Ronda 1 · sin WIP</option>
-            <option value="2" ?selected=${b.round === 2}>Ronda 2 · con WIP</option>
-          </select>
-          <span class="muted">El WIP solo se aplica en la Ronda 2.</span>
+          <label style="margin:0">Tiempo máximo por ronda (min):</label>
+          <input id="timeLimit" type="number" min="0" .value=${b.timeLimitMinutes ?? ''} placeholder="sin límite" style="width:130px">
+          <button class="btn-sm" @click=${() => this.saveTimeLimit(b)}>💾 Guardar</button>
+          <span class="muted">Vacío = sin límite. Solo avisa al agotarse; no corta el juego.</span>
         </div>
 
         <h3 style="margin:8px 0 0">Columnas y límites WIP</h3>
@@ -223,11 +221,17 @@ export class AdminPanel extends LitElement {
         <hr style="border-color:var(--c-border);width:100%">
         <h3 style="margin:0">Partida</h3>
         <div class="row">
-          <button class="btn-primary" @click=${() => this.start(b, 1)}>▶ Iniciar Ronda 1 (sin WIP)</button>
-          <button class="btn-primary" @click=${() => this.start(b, 2)}>▶ Iniciar Ronda 2 (con WIP)</button>
+          <button class="btn-primary" @click=${() => this.start(b, 1, false)}>▶ Ronda 1 (sin WIP)</button>
+          <button class="btn-primary" @click=${() => this.start(b, 2, true)}>▶ Ronda 2 (con WIP)</button>
           <a class="btn" href="/results?id=${b.id}">📊 Ver resultados</a>
         </div>
-        <p class="muted" style="margin:0">Iniciar una ronda reinicia el tablero de juego para esa ronda (los resultados guardados de la ronda anterior se conservan en métricas).</p>
+        <div class="row" style="gap:8px; align-items:flex-end">
+          <span class="muted">o ronda personalizada:</span>
+          <div><label>Nº ronda</label><input id="customRound" type="number" min="1" value=${this.nextRound(b)} style="width:80px"></div>
+          <label style="margin:0"><input id="customWip" type="checkbox"> con WIP</label>
+          <button class="btn-primary" @click=${() => this.startCustom(b)}>▶ Iniciar ronda</button>
+        </div>
+        <p class="muted" style="margin:0">Puedes jugar tantas rondas como quieras; cada una decide si lleva WIP. Iniciar una ronda reinicia el tablero de juego (los resultados de rondas anteriores se conservan en métricas).</p>
       </div>
       ${this.tableStyles()}
     `;
@@ -251,6 +255,22 @@ export class AdminPanel extends LitElement {
   async setRound(b, round) {
     await updateBoard(b.id, { round, wipEnabled: round === 2 });
     toast(`Ronda ${round} activada`, 'success');
+  }
+  async saveTimeLimit(b) {
+    const v = this.querySelector('#timeLimit').value.trim();
+    const min = v === '' ? null : Math.max(0, Number(v)) || null;
+    await updateBoard(b.id, { timeLimitMinutes: min });
+    toast(min ? `Tiempo máximo: ${min} min` : 'Sin límite de tiempo', 'success');
+  }
+  /** Sugerencia del siguiente número de ronda (a partir de la ronda actual del tablero). */
+  nextRound(b) {
+    const r = Number(b?.round) || 0;
+    return r > 0 ? r + 1 : 1;
+  }
+  async startCustom(b) {
+    const round = Math.max(1, Number(this.querySelector('#customRound').value) || 1);
+    const wip = this.querySelector('#customWip').checked;
+    await this.start(b, round, wip);
   }
 
   // edición de columnas (en memoria hasta "Guardar")
@@ -299,11 +319,12 @@ export class AdminPanel extends LitElement {
       toast('Columnas restauradas', 'success');
     }
   }
-  async start(b, round) {
-    const ok = await confirmDialog(`¿Iniciar la Ronda ${round}? Se reiniciará el tablero de juego.`, { title: `Iniciar Ronda ${round}` });
+  async start(b, round, wipEnabled = round === 2) {
+    const wipTxt = wipEnabled ? 'con WIP' : 'sin WIP';
+    const ok = await confirmDialog(`¿Iniciar la Ronda ${round} (${wipTxt})? Se reiniciará el tablero de juego.`, { title: `Iniciar Ronda ${round}` });
     if (!ok) return;
-    await startGame(b, round);
-    toast(`Ronda ${round} iniciada`, 'success');
+    await startGame(b, round, wipEnabled, b.timeLimitMinutes ?? null);
+    toast(`Ronda ${round} (${wipTxt}) iniciada`, 'success');
     location.href = `/board?id=${b.id}`;
   }
 
