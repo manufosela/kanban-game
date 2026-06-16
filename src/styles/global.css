@@ -60,6 +60,12 @@
 
 * { box-sizing: border-box; }
 
+/* El atributo `hidden` debe ganar SIEMPRE a `display` de clases como
+   .page-loading (display:flex), .app-header, etc. Sin esto, [hidden] no
+   oculta porque la regla de clase del autor tiene la misma especificidad
+   y se declara después que la del navegador. */
+[hidden] { display: none !important; }
+
 html, body { height: 100%; }
 
 body {
