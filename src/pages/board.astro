@@ -16,7 +16,7 @@ import Layout from '../layouts/Layout.astro';
     if (!id) { window.location.replace('/dashboard'); }
 
     const { user, profile } = await requireAuth();
-    document.getElementById('loading').hidden = true;
+    document.getElementById('loading').remove();
 
     const el = new GameBoard();
     el.boardId = id;

@@ -27,7 +27,7 @@ import Layout from '../layouts/Layout.astro';
 
     const { user, profile } = await requireAuth();
     const isAdmin = profile?.role === 'admin';
-    document.getElementById('loading').hidden = true;
+    document.getElementById('loading').remove();
     document.getElementById('content').hidden = false;
     if (isAdmin) document.getElementById('adminLink').hidden = false;
 

@@ -13,7 +13,7 @@ import Layout from '../layouts/Layout.astro';
     import { AdminPanel } from '../components/admin-panel.js';
 
     const { user, profile } = await requireAuth({ requireAdmin: true });
-    document.getElementById('loading').hidden = true;
+    document.getElementById('loading').remove();
     const mount = document.getElementById('mount');
     mount.hidden = false;
     const el = new AdminPanel();
