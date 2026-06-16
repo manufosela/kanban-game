@@ -20,7 +20,7 @@ import Layout from '../layouts/Layout.astro';
 
     const el = new GameBoard();
     el.boardId = id;
-    el.me = { uid: user.uid, isAdmin: profile.role === 'admin' };
+    el.me = { uid: user.uid, isAdmin: profile?.role === 'admin' };
     document.getElementById('mount').appendChild(el);
   </script>
 </Layout>

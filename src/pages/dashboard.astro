@@ -26,7 +26,7 @@ import Layout from '../layouts/Layout.astro';
     const STATUS_LABEL = { setup: 'En preparación', playing: 'En juego', finished: 'Terminada' };
 
     const { user, profile } = await requireAuth();
-    const isAdmin = profile.role === 'admin';
+    const isAdmin = profile?.role === 'admin';
     document.getElementById('loading').hidden = true;
     document.getElementById('content').hidden = false;
     if (isAdmin) document.getElementById('adminLink').hidden = false;

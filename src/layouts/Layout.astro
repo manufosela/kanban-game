@@ -12,6 +12,32 @@ const { title = 'Kanban Game', header = true } = Astro.props;
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   </head>
   <body>
+    <div id="globalError" role="alert"></div>
+    <script is:inline>
+      (function () {
+        function show(msg) {
+          var el = document.getElementById('globalError');
+          if (!el) return;
+          el.style.cssText = 'display:block;position:fixed;top:0;left:0;right:0;z-index:99999;background:#7a1f1f;color:#fff;padding:10px 14px;font:14px system-ui,sans-serif;white-space:pre-wrap;cursor:pointer';
+          el.textContent = '⚠ ' + msg + '  —  (toca para ocultar)';
+          el.onclick = function () { el.style.display = 'none'; };
+        }
+        window.__kbgShowError = show;
+        window.addEventListener('error', function (e) {
+          show('Error: ' + ((e.error && (e.error.message || e.error)) || e.message || 'desconocido'));
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+          var r = e.reason || {};
+          show('Fallo: ' + ((r.code ? r.code + ' · ' : '') + (r.message || r)) );
+        });
+        setTimeout(function () {
+          var sp = document.querySelector('.page-loading');
+          if (sp && sp.offsetParent !== null) {
+            show('Sigue cargando tras 12s: la sesión o la base de datos no respondió. Abre la consola (F12) y dime si hay un error en rojo.');
+          }
+        }, 12000);
+      })();
+    </script>
     {header && (
       <header class="app-header" id="appHeader" hidden>
         <a class="brand" href="/dashboard">
