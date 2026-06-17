@@ -1,6 +1,6 @@
 // Acceso a datos de administración: usuarios, equipos, tableros y asignaciones.
 import {
-  ref, push, set, update, remove, get, onValue, serverTimestamp,
+  ref, update, remove, get, onValue, serverTimestamp,
 } from 'firebase/database';
 import { db } from './firebase.js';
 import { defaultColumns } from './rules.js';
@@ -36,43 +36,63 @@ export async function setUserRole(uid, role) {
   await update(ref(db, `users/${uid}`), { role });
 }
 
-// ---- Equipos ----
-export async function createTeam(name, createdBy) {
-  const id = newId('team');
-  await set(ref(db, `teams/${id}`), { name, createdBy, createdAt: serverTimestamp() });
-  return id;
-}
-export async function renameTeam(teamId, name) {
-  await update(ref(db, `teams/${teamId}`), { name });
-}
-export async function deleteTeam(teamId) {
-  await remove(ref(db, `teams/${teamId}`));
-}
-
-// ---- Tableros ----
-/** Crea un tablero con las 7 columnas por defecto (o las indicadas). */
-export async function createBoard({ name, teamId, createdBy, columns }) {
-  const id = newId('board');
-  const cols = (columns || defaultColumns()).reduce((acc, c, i) => {
+// ---- Helpers de tablero ----
+function makeColumns(arr) {
+  return arr.reduce((acc, c, i) => {
     const colId = c.id || newId('col');
     acc[colId] = { name: c.name, order: i, wipLimit: c.wipLimit ?? null };
     return acc;
   }, {});
-  await set(ref(db, `boards/${id}`), {
-    name,
-    teamId: teamId || null,
-    createdBy,
-    createdAt: serverTimestamp(),
-    round: 1,
-    wipEnabled: false,
-    status: 'setup',
-    columns: cols,
-    roleAssignments: {},
-  });
-  return id;
 }
+function boardData(name, teamId, mode, columns, createdBy) {
+  return {
+    name, teamId, mode, // mode: 'nowip' | 'wip' (fijo)
+    createdBy: createdBy || null,
+    createdAt: serverTimestamp(),
+    round: 0,
+    status: 'setup',
+    columns,
+    roleAssignments: {},
+  };
+}
+
+// ---- Equipos (cada equipo = pareja de tableros: sin WIP + con WIP) ----
+export async function createTeam(name, createdBy) {
+  const teamId = newId('team');
+  const boardNoWip = newId('board');
+  const boardWip = newId('board');
+  const colsNoWip = makeColumns(defaultColumns().map((c) => ({ ...c, wipLimit: null })));
+  const colsWip = makeColumns(defaultColumns());
+  const updates = {};
+  updates[`boards/${boardNoWip}`] = boardData(`${name} · sin WIP`, teamId, 'nowip', colsNoWip, createdBy);
+  updates[`boards/${boardWip}`] = boardData(`${name} · con WIP`, teamId, 'wip', colsWip, createdBy);
+  updates[`teams/${teamId}`] = {
+    name, createdBy: createdBy || null, createdAt: serverTimestamp(),
+    members: {}, boardNoWip, boardWip,
+  };
+  await update(ref(db), updates);
+  return teamId;
+}
+export async function renameTeam(teamId, name) {
+  await update(ref(db, `teams/${teamId}`), { name });
+}
+export async function deleteTeam(team) {
+  const updates = {};
+  updates[`teams/${team.id}`] = null;
+  for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) {
+    updates[`boards/${bid}`] = null;
+    updates[`games/${bid}`] = null;
+    updates[`results/${bid}`] = null;
+  }
+  await update(ref(db), updates);
+}
+
+// ---- Tableros ----
 export async function updateBoard(boardId, patch) {
   await update(ref(db, `boards/${boardId}`), patch);
+}
+export async function renameBoard(boardId, name) {
+  await update(ref(db, `boards/${boardId}`), { name });
 }
 export async function deleteBoard(boardId) {
   await remove(ref(db, `boards/${boardId}`));
@@ -94,20 +114,32 @@ export async function setColumnWip(boardId, colId, wipLimit) {
   await update(ref(db, `boards/${boardId}/columns/${colId}`), { wipLimit });
 }
 
-// ---- Asignaciones (persona -> equipo + tablero + rol de juego) ----
-export async function assignPlayer({ boardId, uid, role, teamId }) {
+// ---- Asignaciones (persona -> equipo + rol; se espeja a los 2 tableros) ----
+export async function assignToTeam(team, uid, role) {
   const updates = {};
-  updates[`boards/${boardId}/roleAssignments/${uid}`] = role; // 'PM'|'DEV'|'QA'
-  updates[`users/${uid}/teamId`] = teamId || null;
-  updates[`users/${uid}/boardId`] = boardId;
+  updates[`teams/${team.id}/members/${uid}`] = role; // 'PM'|'DEV'|'QA'
+  updates[`users/${uid}/teamId`] = team.id;
   updates[`users/${uid}/gameRole`] = role;
-  if (teamId) updates[`teams/${teamId}/members/${uid}`] = true;
+  for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) {
+    updates[`boards/${bid}/roleAssignments/${uid}`] = role;
+  }
   await update(ref(db), updates);
 }
-export async function unassignPlayer({ boardId, uid }) {
+export async function unassignFromTeam(team, uid) {
   const updates = {};
-  updates[`boards/${boardId}/roleAssignments/${uid}`] = null;
+  updates[`teams/${team.id}/members/${uid}`] = null;
+  for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) {
+    updates[`boards/${bid}/roleAssignments/${uid}`] = null;
+  }
   await update(ref(db), updates);
+}
+
+// ---- Sesión del facilitador (modo activo + tiempo) ----
+export function watchSession(cb) {
+  return onValue(ref(db, 'session'), (s) => cb(s.exists() ? s.val() : { mode: 'nowip', timeLimitMinutes: null }));
+}
+export async function setSession(patch) {
+  await update(ref(db, 'session'), patch);
 }
 
 export async function getBoard(boardId) {

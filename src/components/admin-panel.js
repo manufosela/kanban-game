@@ -1,10 +1,10 @@
 import { LitElement, html } from 'lit';
 import {
-  watchUsers, watchTeams, watchBoards,
+  watchUsers, watchTeams, watchBoards, watchSession,
   setUserRole, createTeam, renameTeam, deleteTeam,
-  createBoard, updateBoard, deleteBoard, setBoardColumns, assignPlayer, unassignPlayer,
+  renameBoard, setBoardColumns, assignToTeam, unassignFromTeam, setSession,
 } from '../lib/db.js';
-import { startGame } from '../lib/game.js';
+import { startRoundForBoards } from '../lib/game.js';
 import { defaultColumns } from '../lib/rules.js';
 import { toast, confirmDialog, promptDialog } from '../lib/ui.js';
 
@@ -16,6 +16,7 @@ export class AdminPanel extends LitElement {
     users: { state: true },
     teams: { state: true },
     boards: { state: true },
+    session: { state: true },
     selectedBoard: { state: true },
     me: { attribute: false },
   };
@@ -26,6 +27,7 @@ export class AdminPanel extends LitElement {
     this.users = [];
     this.teams = [];
     this.boards = [];
+    this.session = { mode: 'nowip', timeLimitMinutes: null };
     this.selectedBoard = null;
   }
 
@@ -36,14 +38,13 @@ export class AdminPanel extends LitElement {
     super.connectedCallback();
     this._u = watchUsers((l) => { this.users = l; });
     this._t = watchTeams((l) => { this.teams = l; });
+    this._s = watchSession((s) => { this.session = s; });
     this._b = watchBoards((l) => {
       this.boards = l;
       if (this.selectedBoard) this.selectedBoard = l.find((b) => b.id === this.selectedBoard.id) || null;
-      const pre = new URLSearchParams(location.search).get('board');
-      if (pre && !this.selectedBoard) { this.selectedBoard = l.find((b) => b.id === pre) || null; if (this.selectedBoard) this.tab = 'boards'; }
     });
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._u?.(); this._t?.(); this._b?.(); }
+  disconnectedCallback() { super.disconnectedCallback(); this._u?.(); this._t?.(); this._b?.(); this._s?.(); }
 
   teamName(id) { return this.teams.find((t) => t.id === id)?.name || '—'; }
 
@@ -54,14 +55,12 @@ export class AdminPanel extends LitElement {
       </div>
       <div class="row tabs" style="margin:12px 0; gap:6px">
         ${this._tab('people', '👤 Personas')}
-        ${this._tab('teams', '👥 Equipos')}
-        ${this._tab('boards', '🧩 Tableros')}
-        ${this._tab('assign', '🎯 Asignaciones')}
+        ${this._tab('teams', '👥 Equipos y tableros')}
+        ${this._tab('facilitator', '🎛 Facilitador')}
       </div>
       ${this.tab === 'people' ? this.renderPeople() : ''}
       ${this.tab === 'teams' ? this.renderTeams() : ''}
-      ${this.tab === 'boards' ? this.renderBoards() : ''}
-      ${this.tab === 'assign' ? this.renderAssign() : ''}
+      ${this.tab === 'facilitator' ? this.renderFacilitator() : ''}
     `;
   }
 
@@ -105,8 +104,9 @@ export class AdminPanel extends LitElement {
     toast('Rol actualizado', 'success');
   }
 
-  // ---------------- Equipos ----------------
+  // ---------------- Equipos y tableros ----------------
   renderTeams() {
+    if (this.selectedBoard) return this.renderBoardConfig(this.selectedBoard);
     return html`
       <div class="card stack">
         <div class="row">
@@ -114,99 +114,123 @@ export class AdminPanel extends LitElement {
                  @keydown=${(e) => { if (e.key === 'Enter') this.addTeam(); }}>
           <button class="btn-primary" @click=${() => this.addTeam()}>+ Crear equipo</button>
         </div>
-        ${this.teams.length === 0 ? html`<p class="empty-state">No hay equipos todavía.</p>` : html`
-          <ul class="list">
-            ${this.teams.map((t) => html`
-              <li class="flex-between">
-                <span>👥 <strong>${t.name}</strong> <span class="muted">· ${t.members ? Object.keys(t.members).length : 0} miembros</span></span>
-                <span class="row">
-                  <button class="btn-sm" @click=${() => this.renameTeam(t)}>Renombrar</button>
-                  <button class="btn-sm btn-danger" @click=${() => this.removeTeam(t)}>Eliminar</button>
-                </span>
-              </li>`)}
-          </ul>`}
+        <p class="muted" style="margin:0">Cada equipo se crea con sus dos tableros: uno <strong>sin WIP</strong> y uno <strong>con WIP</strong>. Asigna a las personas una vez por equipo; juegan en ambos.</p>
       </div>
+      ${this.teams.length === 0 ? html`<p class="empty-state">No hay equipos todavía.</p>` : this.teams.map((t) => this.renderTeamCard(t))}
       ${this.tableStyles()}
     `;
   }
+
+  renderTeamCard(t) {
+    const members = t.members || {};
+    const counts = ROLES.reduce((a, r) => { a[r] = Object.values(members).filter((x) => x === r).length; return a; }, {});
+    const boardNoWip = this.boards.find((b) => b.id === t.boardNoWip);
+    const boardWip = this.boards.find((b) => b.id === t.boardWip);
+    return html`
+      <div class="card stack" style="margin-top:12px">
+        <div class="flex-between">
+          <h2 style="margin:0">👥 ${t.name}</h2>
+          <span class="row">
+            <button class="btn-sm" @click=${() => this.renameTeam(t)}>Renombrar</button>
+            <button class="btn-sm btn-danger" @click=${() => this.removeTeam(t)}>Eliminar equipo</button>
+          </span>
+        </div>
+        <div class="row">
+          <span class="tag role-PM">PM: ${counts.PM} <span class="muted">(1)</span></span>
+          <span class="tag role-DEV">DEV: ${counts.DEV} <span class="muted">(2-3)</span></span>
+          <span class="tag role-QA">QA: ${counts.QA} <span class="muted">(1-2)</span></span>
+          <span class="muted">${Object.keys(members).length} personas</span>
+        </div>
+
+        <h3 style="margin:6px 0 0">Personas y roles</h3>
+        <table class="t">
+          <thead><tr><th>Persona</th><th>Rol en el equipo</th></tr></thead>
+          <tbody>
+            ${this.users.map((u) => html`
+              <tr>
+                <td>${u.name || u.email}</td>
+                <td>
+                  <select @change=${(e) => this.assign(t, u, e.target.value)}>
+                    <option value="" ?selected=${!members[u.id]}>— Sin asignar —</option>
+                    ${ROLES.map((r) => html`<option value=${r} ?selected=${members[u.id] === r}>${r}</option>`)}
+                  </select>
+                </td>
+              </tr>`)}
+          </tbody>
+        </table>
+
+        <h3 style="margin:6px 0 0">Tableros del equipo</h3>
+        ${this.renderTeamBoardRow(boardNoWip, 'sin WIP')}
+        ${this.renderTeamBoardRow(boardWip, 'con WIP')}
+      </div>
+    `;
+  }
+
+  renderTeamBoardRow(b, label) {
+    if (!b) return html`<p class="muted">Falta el tablero «${label}» (equipo creado con una versión anterior; recréalo).</p>`;
+    return html`
+      <div class="flex-between" style="border-bottom:1px solid var(--c-border); padding:6px 0">
+        <span>🧩 <strong>${b.name}</strong> <span class="tag ${b.mode === 'wip' ? 'role-QA' : ''}">${label}</span>
+          <span class="muted">· ${b.status || 'setup'}${b.round ? ` · ronda ${b.round}` : ''}</span></span>
+        <span class="row">
+          <button class="btn-sm" @click=${() => this.renameBoardPrompt(b)}>Renombrar</button>
+          <button class="btn-sm" @click=${() => { this.selectedBoard = b; }}>⚙ Columnas${b.mode === 'wip' ? ' y WIP' : ''}</button>
+          <a class="btn btn-sm" href="/board?id=${b.id}">▶ Abrir</a>
+          <a class="btn btn-sm" href="/results?id=${b.id}">📊</a>
+        </span>
+      </div>
+    `;
+  }
+
   async addTeam() {
     const input = this.querySelector('#newTeam');
     const name = input.value.trim();
     if (!name) return toast('Escribe un nombre', 'warning');
     await createTeam(name, this.me?.uid);
     input.value = '';
-    toast('Equipo creado', 'success');
+    toast('Equipo y sus 2 tableros creados', 'success');
   }
   async renameTeam(t) {
     const name = await promptDialog('Nuevo nombre del equipo', { title: 'Renombrar equipo', value: t.name });
     if (name) { await renameTeam(t.id, name); toast('Equipo renombrado', 'success'); }
   }
   async removeTeam(t) {
-    if (await confirmDialog(`¿Eliminar el equipo "${t.name}"?`, { title: 'Eliminar equipo', danger: true })) {
-      await deleteTeam(t.id); toast('Equipo eliminado', 'success');
+    if (await confirmDialog(`¿Eliminar el equipo "${t.name}" y sus 2 tableros (con partidas y resultados)?`, { title: 'Eliminar equipo', danger: true })) {
+      await deleteTeam(t); toast('Equipo eliminado', 'success');
     }
   }
-
-  // ---------------- Tableros ----------------
-  renderBoards() {
-    if (this.selectedBoard) return this.renderBoardConfig(this.selectedBoard);
-    return html`
-      <div class="card stack">
-        <div class="row">
-          <input id="newBoard" type="text" placeholder="Nombre del tablero" style="max-width:260px">
-          <select id="newBoardTeam" style="max-width:220px">
-            <option value="">— Sin equipo —</option>
-            ${this.teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}
-          </select>
-          <button class="btn-primary" @click=${() => this.addBoard()}>+ Crear tablero</button>
-        </div>
-        <p class="muted">Cada tablero se crea con las 7 columnas por defecto del juego. Puedes editarlas y configurar el WIP entrando en el tablero.</p>
-        ${this.boards.length === 0 ? html`<p class="empty-state">No hay tableros.</p>` : html`
-          <ul class="list">
-            ${this.boards.map((b) => html`
-              <li class="flex-between">
-                <span>🧩 <strong>${b.name}</strong>
-                  <span class="muted">· ${this.teamName(b.teamId)} · ${b.columns ? Object.keys(b.columns).length : 0} col · ${b.status || 'setup'}</span>
-                </span>
-                <span class="row">
-                  <button class="btn-sm" @click=${() => { this.selectedBoard = b; }}>⚙ Configurar</button>
-                  <a class="btn btn-sm" href="/board?id=${b.id}">▶ Jugar</a>
-                  <button class="btn-sm btn-danger" @click=${() => this.removeBoard(b)}>Eliminar</button>
-                </span>
-              </li>`)}
-          </ul>`}
-      </div>
-      ${this.tableStyles()}
-    `;
+  async renameBoardPrompt(b) {
+    const name = await promptDialog('Nuevo nombre del tablero', { title: 'Renombrar tablero', value: b.name });
+    if (name) { await renameBoard(b.id, name); toast('Tablero renombrado', 'success'); }
+  }
+  async assign(team, u, role) {
+    if (!role) { await unassignFromTeam(team, u.id); toast(`${u.name || u.email} sin asignar`, 'info'); return; }
+    await assignToTeam(team, u.id, role);
+    toast(`${u.name || u.email} → ${role}`, 'success');
   }
 
+  // ---------------- Configuración de columnas de un tablero ----------------
   renderBoardConfig(b) {
+    const isWip = b.mode === 'wip';
     const cols = Object.entries(b.columns || {})
       .map(([id, c]) => ({ id, ...c }))
       .sort((a, c) => (a.order ?? 0) - (c.order ?? 0));
     return html`
       <div class="card stack">
         <div class="flex-between">
-          <h2 style="margin:0">⚙ ${b.name}</h2>
+          <h2 style="margin:0">⚙ ${b.name} <span class="tag ${isWip ? 'role-QA' : ''}">${isWip ? 'con WIP' : 'sin WIP'}</span></h2>
           <button @click=${() => { this.selectedBoard = null; }}>← Volver</button>
         </div>
-
-        <div class="row" style="gap:8px">
-          <label style="margin:0">Tiempo máximo por ronda (min):</label>
-          <input id="timeLimit" type="number" min="0" .value=${b.timeLimitMinutes ?? ''} placeholder="sin límite" style="width:130px">
-          <button class="btn-sm" @click=${() => this.saveTimeLimit(b)}>💾 Guardar</button>
-          <span class="muted">Vacío = sin límite. Solo avisa al agotarse; no corta el juego.</span>
-        </div>
-
-        <h3 style="margin:8px 0 0">Columnas y límites WIP</h3>
-        <p class="muted" style="margin:0">Vacío = sin límite. Backlog y Done no se limitan nunca.</p>
+        <h3 style="margin:8px 0 0">Columnas${isWip ? ' y límites WIP' : ''}</h3>
+        ${isWip
+          ? html`<p class="muted" style="margin:0">Vacío = sin límite. Backlog y Done no se limitan nunca.</p>`
+          : html`<p class="muted" style="margin:0">Este tablero es <strong>sin WIP</strong>: las columnas no tienen límite.</p>`}
         <div id="colEditor" class="stack">
           ${cols.map((c, i) => html`
             <div class="row col-row" data-id=${c.id}>
               <span class="muted" style="width:24px">${i + 1}</span>
               <input class="c-name" type="text" .value=${c.name} style="max-width:240px">
-              <label style="margin:0">WIP</label>
-              <input class="c-wip" type="number" min="0" .value=${c.wipLimit ?? ''} placeholder="∞" style="width:80px">
+              ${isWip ? html`<label style="margin:0">WIP</label><input class="c-wip" type="number" min="0" .value=${c.wipLimit ?? ''} placeholder="∞" style="width:80px">` : ''}
               <button class="btn-sm" @click=${() => this.moveCol(cols, i, -1)} ?disabled=${i === 0}>↑</button>
               <button class="btn-sm" @click=${() => this.moveCol(cols, i, 1)} ?disabled=${i === cols.length - 1}>↓</button>
               <button class="btn-sm btn-danger" @click=${() => this.deleteCol(cols, i)} ?disabled=${cols.length <= 5}>✕</button>
@@ -214,69 +238,20 @@ export class AdminPanel extends LitElement {
         </div>
         <div class="row">
           <button class="btn-sm" @click=${() => this.addCol(cols)}>+ Añadir columna</button>
-          <button class="btn-primary" @click=${() => this.saveCols(b)}>💾 Guardar columnas y WIP</button>
+          <button class="btn-primary" @click=${() => this.saveCols(b)}>💾 Guardar columnas</button>
           <button class="btn-sm" @click=${() => this.resetCols(b)}>Restaurar 7 por defecto</button>
         </div>
-
-        <hr style="border-color:var(--c-border);width:100%">
-        <h3 style="margin:0">Partida</h3>
-        <div class="row">
-          <button class="btn-primary" @click=${() => this.start(b, 1, false)}>▶ Ronda 1 (sin WIP)</button>
-          <button class="btn-primary" @click=${() => this.start(b, 2, true)}>▶ Ronda 2 (con WIP)</button>
-          <a class="btn" href="/results?id=${b.id}">📊 Ver resultados</a>
-        </div>
-        <div class="row" style="gap:8px; align-items:flex-end">
-          <span class="muted">o ronda personalizada:</span>
-          <div><label>Nº ronda</label><input id="customRound" type="number" min="1" value=${this.nextRound(b)} style="width:80px"></div>
-          <label style="margin:0"><input id="customWip" type="checkbox"> con WIP</label>
-          <button class="btn-primary" @click=${() => this.startCustom(b)}>▶ Iniciar ronda</button>
-        </div>
-        <p class="muted" style="margin:0">Puedes jugar tantas rondas como quieras; cada una decide si lleva WIP. Iniciar una ronda reinicia el tablero de juego (los resultados de rondas anteriores se conservan en métricas).</p>
+        <p class="muted" style="margin:0">El inicio de rondas se hace desde la pestaña <strong>Facilitador</strong>.</p>
       </div>
       ${this.tableStyles()}
     `;
   }
 
-  async addBoard() {
-    const name = this.querySelector('#newBoard').value.trim();
-    const teamId = this.querySelector('#newBoardTeam').value || null;
-    if (!name) return toast('Escribe un nombre de tablero', 'warning');
-    const id = await createBoard({ name, teamId, createdBy: this.me?.uid });
-    this.querySelector('#newBoard').value = '';
-    toast('Tablero creado', 'success');
-    const b = await new Promise((r) => { const u = watchBoards((l) => { u(); r(l.find((x) => x.id === id)); }); });
-    if (b) this.selectedBoard = b;
-  }
-  async removeBoard(b) {
-    if (await confirmDialog(`¿Eliminar el tablero "${b.name}" y su partida?`, { title: 'Eliminar tablero', danger: true })) {
-      await deleteBoard(b.id); toast('Tablero eliminado', 'success');
-    }
-  }
-  async setRound(b, round) {
-    await updateBoard(b.id, { round, wipEnabled: round === 2 });
-    toast(`Ronda ${round} activada`, 'success');
-  }
-  async saveTimeLimit(b) {
-    const v = this.querySelector('#timeLimit').value.trim();
-    const min = v === '' ? null : Math.max(0, Number(v)) || null;
-    await updateBoard(b.id, { timeLimitMinutes: min });
-    toast(min ? `Tiempo máximo: ${min} min` : 'Sin límite de tiempo', 'success');
-  }
-  /** Sugerencia del siguiente número de ronda (a partir de la ronda actual del tablero). */
-  nextRound(b) {
-    const r = Number(b?.round) || 0;
-    return r > 0 ? r + 1 : 1;
-  }
-  async startCustom(b) {
-    const round = Math.max(1, Number(this.querySelector('#customRound').value) || 1);
-    const wip = this.querySelector('#customWip').checked;
-    await this.start(b, round, wip);
-  }
-
   // edición de columnas (en memoria hasta "Guardar")
   readColsFromDom() {
     return Array.from(this.querySelectorAll('.col-row')).map((row) => {
-      const wip = row.querySelector('.c-wip').value.trim();
+      const wipEl = row.querySelector('.c-wip');
+      const wip = wipEl ? wipEl.value.trim() : '';
       return {
         id: row.dataset.id,
         name: row.querySelector('.c-name').value.trim() || 'Columna',
@@ -315,62 +290,95 @@ export class AdminPanel extends LitElement {
   }
   async resetCols(b) {
     if (await confirmDialog('¿Restaurar las 7 columnas por defecto? Se perderá la configuración actual de columnas.', { title: 'Restaurar columnas', danger: true })) {
-      await setBoardColumns(b.id, defaultColumns());
+      const cols = b.mode === 'wip' ? defaultColumns() : defaultColumns().map((c) => ({ ...c, wipLimit: null }));
+      await setBoardColumns(b.id, cols);
       toast('Columnas restauradas', 'success');
     }
   }
-  async start(b, round, wipEnabled = round === 2) {
-    const wipTxt = wipEnabled ? 'con WIP' : 'sin WIP';
-    const ok = await confirmDialog(`¿Iniciar la Ronda ${round} (${wipTxt})? Se reiniciará el tablero de juego.`, { title: `Iniciar Ronda ${round}` });
-    if (!ok) return;
-    await startGame(b, round, wipEnabled, b.timeLimitMinutes ?? null);
-    toast(`Ronda ${round} (${wipTxt}) iniciada`, 'success');
-    location.href = `/board?id=${b.id}`;
-  }
 
-  // ---------------- Asignaciones ----------------
-  renderAssign() {
-    const board = this.selectedBoard || this.boards[0];
-    if (!board) return html`<div class="card empty-state">Crea primero un tablero en la pestaña Tableros.</div>`;
-    const assignments = board.roleAssignments || {};
-    const counts = ROLES.reduce((a, r) => { a[r] = Object.values(assignments).filter((x) => x === r).length; return a; }, {});
+  // ---------------- Facilitador (control central) ----------------
+  renderFacilitator() {
+    const mode = this.session?.mode || 'nowip';
+    const modeBoards = this.boards.filter((b) => b.mode === mode);
+    const anyPlaying = modeBoards.some((b) => b.status === 'playing');
+    const nextRound = Math.max(0, ...modeBoards.map((b) => Number(b.round) || 0)) + 1;
+    const teamless = modeBoards.filter((b) => !this.teams.find((t) => t.id === b.teamId));
+    const emptyTeams = modeBoards.filter((b) => {
+      const t = this.teams.find((x) => x.id === b.teamId);
+      return t && (!t.members || Object.keys(t.members).length === 0);
+    });
+    const blocked = teamless.length > 0 || emptyTeams.length > 0;
     return html`
       <div class="card stack">
-        <div class="row">
-          <label style="margin:0">Tablero:</label>
-          <select @change=${(e) => { this.selectedBoard = this.boards.find((b) => b.id === e.target.value); }}>
-            ${this.boards.map((b) => html`<option value=${b.id} ?selected=${b.id === board.id}>${b.name}</option>`)}
-          </select>
-          <span class="muted">Equipo: ${this.teamName(board.teamId)}</span>
+        <h2 style="margin:0">🎛 Facilitador</h2>
+        <div class="row" style="gap:8px">
+          <label style="margin:0">Modo activo:</label>
+          <button class=${mode === 'nowip' ? 'btn-primary' : ''} @click=${() => this.setMode('nowip')}>Sin WIP</button>
+          <button class=${mode === 'wip' ? 'btn-primary' : ''} @click=${() => this.setMode('wip')}>Con WIP</button>
         </div>
-        <div class="row">
-          <span class="tag role-PM">PM: ${counts.PM} <span class="muted">(reco. 1)</span></span>
-          <span class="tag role-DEV">DEV: ${counts.DEV} <span class="muted">(reco. 2-3)</span></span>
-          <span class="tag role-QA">QA: ${counts.QA} <span class="muted">(reco. 1-2)</span></span>
+        <div class="row" style="gap:8px">
+          <label style="margin:0">Tiempo máximo por ronda (min):</label>
+          <input id="sessTime" type="number" min="0" .value=${this.session?.timeLimitMinutes ?? ''} placeholder="sin límite" style="width:130px">
+          <button class="btn-sm" @click=${() => this.saveSessionTime()}>💾 Guardar</button>
+          <span class="muted">Vacío = sin límite.</span>
         </div>
-        <table class="t">
-          <thead><tr><th>Persona</th><th>Rol en este tablero</th></tr></thead>
-          <tbody>
-            ${this.users.map((u) => html`
-              <tr>
-                <td>${u.name || u.email}</td>
-                <td>
-                  <select @change=${(e) => this.assign(board, u, e.target.value)}>
-                    <option value="" ?selected=${!assignments[u.id]}>— Sin asignar —</option>
-                    ${ROLES.map((r) => html`<option value=${r} ?selected=${assignments[u.id] === r}>${r}</option>`)}
-                  </select>
-                </td>
-              </tr>`)}
-          </tbody>
-        </table>
+
+        <h3 style="margin:6px 0 0">Tableros del modo ${mode === 'wip' ? 'CON WIP' : 'SIN WIP'} (${modeBoards.length})</h3>
+        ${modeBoards.length === 0 ? html`<p class="muted">No hay tableros. Crea equipos en la pestaña «Equipos y tableros».</p>` : html`
+          <table class="t">
+            <thead><tr><th>Equipo</th><th>Personas</th><th>Estado</th><th>Ronda</th><th></th></tr></thead>
+            <tbody>
+              ${modeBoards.map((b) => {
+                const team = this.teams.find((t) => t.id === b.teamId);
+                const n = team?.members ? Object.keys(team.members).length : 0;
+                return html`<tr>
+                  <td>${team?.name || '—'} ${n === 0 ? html`<span class="tag bad">sin personas</span>` : ''}</td>
+                  <td>${n}</td>
+                  <td>${b.status || 'setup'}</td>
+                  <td>${b.round || '—'}</td>
+                  <td><a class="btn btn-sm" href="/board?id=${b.id}">▶ Abrir</a> <a class="btn btn-sm" href="/results?id=${b.id}">📊</a></td>
+                </tr>`;
+              })}
+            </tbody>
+          </table>`}
+
+        ${blocked ? html`<p class="bad" style="margin:0">⚠ No se puede iniciar: hay equipos sin personas o tableros sin equipo. Corrígelo en «Equipos y tableros».</p>` : ''}
+        <div class="row" style="gap:10px; align-items:center">
+          <button class="btn-primary btn-lg" ?disabled=${modeBoards.length === 0 || anyPlaying || blocked} @click=${() => this.startNextRound()}>
+            ▶ Iniciar ronda ${nextRound} (${mode === 'wip' ? 'con WIP' : 'sin WIP'}) en todos
+          </button>
+          ${anyPlaying ? html`<span class="muted">Hay rondas en curso; espera a que terminen.</span>` : ''}
+        </div>
+        <p class="muted" style="margin:0">Empieza por el modo <strong>Sin WIP</strong> (ronda 1 para todos). Cuando terminen, cambia a <strong>Con WIP</strong> y vuelve a iniciar.</p>
       </div>
       ${this.tableStyles()}
     `;
   }
-  async assign(board, u, role) {
-    if (!role) { await unassignPlayer({ boardId: board.id, uid: u.id }); toast(`${u.name || u.email} sin asignar`, 'info'); return; }
-    await assignPlayer({ boardId: board.id, uid: u.id, role, teamId: board.teamId });
-    toast(`${u.name || u.email} → ${role}`, 'success');
+  async setMode(mode) { await setSession({ mode }); }
+  async saveSessionTime() {
+    const v = this.querySelector('#sessTime').value.trim();
+    const min = v === '' ? null : Math.max(0, Number(v)) || null;
+    await setSession({ timeLimitMinutes: min });
+    toast(min ? `Tiempo máximo: ${min} min` : 'Sin límite de tiempo', 'success');
+  }
+  async startNextRound() {
+    const mode = this.session?.mode || 'nowip';
+    const modeBoards = this.boards.filter((b) => b.mode === mode);
+    if (modeBoards.length === 0) return toast('No hay tableros de este modo', 'warning');
+    const problems = [];
+    for (const b of modeBoards) {
+      const team = this.teams.find((t) => t.id === b.teamId);
+      const n = team?.members ? Object.keys(team.members).length : 0;
+      if (!team) problems.push(`"${b.name}" sin equipo`);
+      else if (n === 0) problems.push(`Equipo "${team.name}" sin personas`);
+    }
+    if (problems.length) return toast('No se puede iniciar: ' + problems.join('; '), 'error', 6000);
+    if (modeBoards.some((b) => b.status === 'playing')) return toast('Hay rondas en curso.', 'warning');
+    const nextRound = Math.max(0, ...modeBoards.map((b) => Number(b.round) || 0)) + 1;
+    const ok = await confirmDialog(`¿Iniciar la ronda ${nextRound} (${mode === 'wip' ? 'con WIP' : 'sin WIP'}) en ${modeBoards.length} tablero(s) a la vez?`, { title: 'Iniciar ronda' });
+    if (!ok) return;
+    await startRoundForBoards(modeBoards, nextRound, mode, this.session?.timeLimitMinutes ?? null);
+    toast(`Ronda ${nextRound} iniciada en ${modeBoards.length} tablero(s)`, 'success');
   }
 
   tableStyles() {
@@ -383,6 +391,8 @@ export class AdminPanel extends LitElement {
       ul.list { list-style: none; padding: 0; margin: 0; }
       ul.list li { padding: 10px 4px; border-bottom: 1px solid var(--c-border); }
       .col-row { padding: 4px 0; }
+      .tag.bad { background: #5a1d1d; color: #ffd7d7; }
+      p.bad { color: var(--c-warning); }
     </style>`;
   }
 }

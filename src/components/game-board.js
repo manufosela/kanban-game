@@ -1,7 +1,7 @@
 import { LitElement, html } from 'lit';
 import { watchBoard } from '../lib/db.js';
 import {
-  watchGame, applyAction, startGame, STEP, STEP_ROLE, STEP_LABEL,
+  watchGame, applyAction, STEP, STEP_ROLE, STEP_LABEL,
 } from '../lib/game.js';
 import * as R from '../lib/rules.js';
 import { toast } from '../lib/ui.js';
@@ -64,25 +64,19 @@ export class GameBoard extends LitElement {
   }
 
   renderNoGame() {
+    const modeTxt = this.board.mode === 'wip' ? 'con WIP' : (this.board.mode === 'nowip' ? 'sin WIP' : '');
     return html`
       <div class="card center stack">
         <h1>${this.board.name}</h1>
-        <p class="muted">La partida todavía no ha comenzado.</p>
-        ${this.isAdmin ? html`
-          <div class="row" style="justify-content:center">
-            <button class="btn-primary" @click=${() => this.start(1, false)}>▶ Iniciar Ronda 1 (sin WIP)</button>
-            <button class="btn-primary" @click=${() => this.start(2, true)}>▶ Iniciar Ronda 2 (con WIP)</button>
-          </div>
-          <p class="muted" style="margin:0">Para más rondas o configurar el tiempo, usa Administración → Tableros → Configurar.</p>`
-          : html`<p>Pide a tu administrador que inicie una ronda.</p>`}
+        ${modeTxt ? html`<div><span class="tag ${this.board.mode === 'wip' ? 'role-QA' : ''}">${modeTxt}</span></div>` : ''}
+        <p class="muted">La ronda todavía no ha comenzado.</p>
+        ${this.isAdmin
+          ? html`<p>Inicia la ronda desde <a href="/admin">Administración → Facilitador</a>.</p>`
+          : html`<p>Pide al facilitador que inicie la ronda.</p>`}
         <a href="/dashboard">← Volver</a>
       </div>
       ${this.styles()}
     `;
-  }
-  async start(round, wipEnabled = round === 2) {
-    await startGame(this.board, round, wipEnabled, this.board?.timeLimitMinutes ?? null);
-    toast(`Ronda ${round} iniciada`, 'success');
   }
   onTimeUp() {
     if (this._toldTimeup) return;
@@ -269,9 +263,7 @@ export class GameBoard extends LitElement {
       <p>Total de historias en <strong>Done</strong>: <strong style="font-size:1.4rem">${R.doneTotal(this.game)}</strong></p>
       <div class="row" style="justify-content:center">
         <a class="btn btn-primary" href="/results?id=${this.boardId}">📊 Ver resultados y gráficas</a>
-        ${this.isAdmin ? html`
-          <button @click=${() => this.start(this.game.round + 1, false)}>▶ Ronda ${this.game.round + 1} sin WIP</button>
-          <button @click=${() => this.start(this.game.round + 1, true)}>▶ Ronda ${this.game.round + 1} con WIP</button>` : ''}
+        ${this.isAdmin ? html`<a class="btn" href="/admin">🎛 Facilitador (siguiente ronda)</a>` : ''}
       </div>
     </div>`;
   }

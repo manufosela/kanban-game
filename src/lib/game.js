@@ -61,6 +61,16 @@ export async function startGame(board, round, wipEnabled = round === 2, timeLimi
   await runTransaction(ref(db, `boards/${board.id}/status`), () => 'playing');
 }
 
+/**
+ * Inicio centralizado (facilitador): arranca la misma ronda en varios tableros a la vez.
+ * `mode` define wipEnabled. Devuelve el número de tableros iniciados.
+ */
+export async function startRoundForBoards(boards, round, mode, timeLimitMinutes = null) {
+  const wipEnabled = mode === 'wip';
+  await Promise.all((boards || []).map((b) => startGame(b, round, wipEnabled, timeLimitMinutes)));
+  return (boards || []).length;
+}
+
 function pushLog(state, text) {
   const log = Array.isArray(state.log) ? state.log : [];
   state.log = [...log, { t: Date.now(), turn: state.turn, step: state.step, text }].slice(-60);

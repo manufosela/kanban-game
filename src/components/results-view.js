@@ -11,53 +11,72 @@ export class ResultsView extends LitElement {
   static properties = {
     boardId: { type: String, attribute: 'board-id' },
     board: { state: true },
+    team: { state: true },
     game: { state: true },
-    results: { state: true },
+    resultsNoWip: { state: true },
+    resultsWip: { state: true },
   };
-  constructor() { super(); this.board = null; this.game = null; this.results = {}; }
+  constructor() {
+    super();
+    this.board = null; this.team = null; this.game = null;
+    this.resultsNoWip = {}; this.resultsWip = {};
+  }
   createRenderRoot() { return this; }
 
   connectedCallback() {
     super.connectedCallback();
-    this._wb = watchBoard(this.boardId, (b) => { this.board = b; });
+    this._wb = watchBoard(this.boardId, (b) => {
+      this.board = b;
+      if (b?.teamId && b.teamId !== this._teamId) {
+        this._teamId = b.teamId;
+        this._wt?.();
+        this._wt = onValue(ref(db, `teams/${b.teamId}`), (s) => {
+          this.team = s.exists() ? { id: b.teamId, ...s.val() } : null;
+          this._subResults(this.team);
+        });
+      }
+    });
     this._wg = watchGame(this.boardId, (g) => { this.game = g; });
-    this._wr = onValue(ref(db, `results/${this.boardId}`), (s) => { this.results = s.exists() ? s.val() : {}; });
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._wb?.(); this._wg?.(); this._wr?.(); }
+  _subResults(t) {
+    this._wrn?.(); this._wrw?.();
+    if (t?.boardNoWip) this._wrn = onValue(ref(db, `results/${t.boardNoWip}`), (s) => { this.resultsNoWip = s.exists() ? s.val() : {}; });
+    if (t?.boardWip) this._wrw = onValue(ref(db, `results/${t.boardWip}`), (s) => { this.resultsWip = s.exists() ? s.val() : {}; });
+  }
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._wb?.(); this._wg?.(); this._wt?.(); this._wrn?.(); this._wrw?.();
+  }
 
   colName(columns, colId) {
     const c = R.orderedColumns(columns).find((x) => x.id === colId);
     return c?.name || colId;
   }
-
   bottleneckOf(snapshots, columns) {
     const arr = Object.values(snapshots || {});
     const b = R.bottleneck(arr, columns);
     return b ? { name: this.colName(columns, b.colId), avg: b.avg } : null;
   }
-
-  /** Todas las rondas archivadas, ordenadas por número de ronda. */
-  archivedRounds() {
-    const res = this.results || {};
-    return Object.values(res)
-      .filter((r) => r && typeof r === 'object' && r.snapshots)
-      .sort((a, b) => (a.round || 0) - (b.round || 0));
+  /** Última ronda archivada de un conjunto de resultados de un tablero. */
+  latestRound(res) {
+    const rounds = Object.values(res || {}).filter((r) => r && r.snapshots);
+    return rounds.sort((a, b) => (b.round || 0) - (a.round || 0))[0] || null;
   }
 
   render() {
     if (!this.board) return html`<div class="page-loading"><span class="spinner"></span> Cargando…</div>`;
-    const rounds = this.archivedRounds();
+    const cmp = [this.latestRound(this.resultsNoWip), this.latestRound(this.resultsWip)].filter(Boolean);
     return html`
       <div class="flex-between">
         <div>
           <a href="/dashboard" class="muted">← Tableros</a>
-          <h1 style="margin:4px 0">📊 Resultados · ${this.board.name}</h1>
+          <h1 style="margin:4px 0">📊 Resultados · ${this.team?.name || this.board.name}</h1>
         </div>
         <a class="btn btn-primary" href="/board?id=${this.boardId}">▶ Ir al tablero</a>
       </div>
 
       ${this.renderCurrent()}
-      ${rounds.length ? this.renderComparison(rounds) : ''}
+      ${cmp.length ? this.renderComparison(cmp) : ''}
       ${this.chartStyles()}
     `;
   }
@@ -93,11 +112,11 @@ export class ResultsView extends LitElement {
     const maxDone = Math.max(...data.map((r) => r.doneTotal || 0));
     return html`
       <div class="card stack" style="margin-top:14px">
-        <h2 style="margin:0">Comparativa de rondas (${data.length})</h2>
+        <h2 style="margin:0">Comparativa del equipo: sin WIP vs con WIP</h2>
         <div style="overflow-x:auto">
           <table class="cmp">
             <thead><tr><th></th>
-              ${data.map((r) => html`<th>Ronda ${r.round}<br><span class="muted">${r.wipEnabled ? 'con WIP' : 'sin WIP'}</span></th>`)}
+              ${data.map((r) => html`<th>${r.wipEnabled ? 'Con WIP' : 'Sin WIP'}<br><span class="muted">ronda ${r.round}</span></th>`)}
             </tr></thead>
             <tbody>
               <tr><td>Total en Done</td>${data.map((r) => html`<td class=${r.doneTotal === maxDone ? 'pos' : ''}><strong>${r.doneTotal}</strong></td>`)}</tr>
