@@ -81,8 +81,8 @@ export class AdminPanel extends LitElement {
     return html`
       <div class="card stack">
         <h3 style="margin:0">Pre-registrar personas por email</h3>
-        <p class="muted" style="margin:0">Pega los correos (uno por línea o separados por comas). Cuando entren con ese correo se asociarán solos al equipo y rol que les asignes.</p>
-        <textarea id="invEmails" rows="3" placeholder="ana@correo.com, luis@correo.com…" style="width:100%"></textarea>
+        <p class="muted" style="margin:0">Pega los correos separados por comas o saltos de línea. Acepta el formato de convocatoria <code>Nombre Apellido &lt;correo&gt;</code> (rellena nombre y email) o solo el correo. Cuando entren con ese correo se asociarán solos a su equipo y rol.</p>
+        <textarea id="invEmails" rows="3" placeholder="Ana Pérez &lt;ana@correo.com&gt;, Luis Gil &lt;luis@correo.com&gt;…" style="width:100%"></textarea>
         <div><button class="btn-primary" @click=${() => this.addInvitedEmails()}>+ Añadir personas</button></div>
       </div>
       <div class="card" style="margin-top:12px">
@@ -114,15 +114,32 @@ export class AdminPanel extends LitElement {
       ${this.tableStyles()}
     `;
   }
+  /** Parsea "Nombre Apellido <correo>, correo2, ..." -> [{email, name}] (nombre = correo si no hay). */
+  parseInvited(raw) {
+    const emailRe = /([^\s<>;,]+@[^\s<>;,]+\.[^\s<>;,]+)/;
+    const out = [];
+    const seen = new Set();
+    for (const chunk of String(raw || '').split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean)) {
+      const m = chunk.match(emailRe);
+      if (!m) continue;
+      const email = m[1].toLowerCase();
+      if (seen.has(email)) continue;
+      seen.add(email);
+      let name = chunk.replace(m[1], '').replace(/[<>"']/g, '').trim();
+      if (!name) name = email;
+      out.push({ email, name });
+    }
+    return out;
+  }
   async addInvitedEmails() {
     const raw = this.querySelector('#invEmails').value || '';
-    const emails = raw.split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter((e) => e.includes('@'));
-    if (emails.length === 0) return toast('Escribe al menos un correo válido', 'warning');
+    const parsed = this.parseInvited(raw);
+    if (parsed.length === 0) return toast('No se reconoció ningún correo válido', 'warning');
     const existing = new Set([...this.users.map((u) => (u.email || '').toLowerCase()), ...this.invited.map((i) => i.email)]);
     let added = 0;
-    for (const e of emails) { if (!existing.has(e)) { await addInvited(e); added++; } }
+    for (const { email, name } of parsed) { if (!existing.has(email)) { await addInvited(email, name); added++; } }
     this.querySelector('#invEmails').value = '';
-    toast(`${added} persona(s) pre-registrada(s)`, 'success');
+    toast(added ? `${added} persona(s) pre-registrada(s)` : 'Ya estaban todas pre-registradas', added ? 'success' : 'info');
   }
   async removeInvited(iv) {
     if (await confirmDialog(`¿Eliminar el pre-registro de ${iv.email}?`, { title: 'Eliminar pendiente', danger: true })) {
