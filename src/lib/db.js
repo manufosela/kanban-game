@@ -142,6 +142,45 @@ export async function setSession(patch) {
   await update(ref(db, 'session'), patch);
 }
 
+// ---- Pre-registro de personas por email (invitados) ----
+export function invKey(email) {
+  return 'inv_' + String(email || '').trim().toLowerCase().replace(/[.#$/[\]@]/g, '_');
+}
+export function watchInvited(cb) {
+  return onValue(ref(db, 'invitedUsers'), (s) => cb(toList(s.val())));
+}
+export async function addInvited(email, name) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return null;
+  const key = invKey(e);
+  await update(ref(db, `invitedUsers/${key}`), { email: e, name: name || e, teamId: null, role: null });
+  return key;
+}
+export async function deleteInvited(key) { await remove(ref(db, `invitedUsers/${key}`)); }
+export async function setInvitedAssignment(key, teamId, role) {
+  await update(ref(db, `invitedUsers/${key}`), { teamId: teamId || null, role: role || null });
+}
+
+/**
+ * Al iniciar sesión: si hay un pre-registro con el email del usuario, lo asocia
+ * a su equipo y rol (en ambos tableros) y elimina el registro pendiente.
+ */
+export async function claimInvitedOnLogin(user) {
+  if (!user?.email) return false;
+  const key = invKey(user.email);
+  const snap = await get(ref(db, `invitedUsers/${key}`));
+  if (!snap.exists()) return false;
+  const inv = snap.val();
+  if (inv.teamId) {
+    const ts = await get(ref(db, `teams/${inv.teamId}`));
+    if (ts.exists()) {
+      await assignToTeam({ id: inv.teamId, ...ts.val() }, user.uid, inv.role || 'DEV');
+    }
+  }
+  await remove(ref(db, `invitedUsers/${key}`));
+  return true;
+}
+
 export async function getBoard(boardId) {
   const s = await get(ref(db, `boards/${boardId}`));
   return s.exists() ? { id: boardId, ...s.val() } : null;

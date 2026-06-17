@@ -18,7 +18,12 @@
       ".read": "auth != null",
       ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
       "$teamId": {
-        ".validate": "newData.hasChildren(['name'])"
+        ".validate": "newData.hasChildren(['name'])",
+        "members": {
+          "$uid": {
+            ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+          }
+        }
       }
     },
 
@@ -26,7 +31,12 @@
       ".read": "auth != null",
       ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
       "$boardId": {
-        ".validate": "newData.hasChildren(['name'])"
+        ".validate": "newData.hasChildren(['name'])",
+        "roleAssignments": {
+          "$uid": {
+            ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+          }
+        }
       }
     },
 
@@ -47,6 +57,14 @@
     "session": {
       ".read": "auth != null",
       ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "invitedUsers": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$key": {
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (data.exists() && data.child('email').val() === auth.token.email))"
+      }
     }
   }
 }

@@ -1,12 +1,13 @@
 import { LitElement, html } from 'lit';
 import {
-  watchUsers, watchTeams, watchBoards, watchSession,
+  watchUsers, watchTeams, watchBoards, watchSession, watchInvited,
   setUserRole, createTeam, renameTeam, deleteTeam,
   renameBoard, setBoardColumns, assignToTeam, unassignFromTeam, setSession,
+  addInvited, deleteInvited, setInvitedAssignment,
 } from '../lib/db.js';
 import { startPartidaForBoards } from '../lib/game.js';
 import { defaultColumns } from '../lib/rules.js';
-import { toast, confirmDialog, promptDialog } from '../lib/ui.js';
+import { toast, confirmDialog, promptDialog, modal } from '../lib/ui.js';
 
 const ROLES = ['PM', 'DEV', 'QA'];
 
@@ -17,6 +18,7 @@ export class AdminPanel extends LitElement {
     teams: { state: true },
     boards: { state: true },
     session: { state: true },
+    invited: { state: true },
     selectedBoard: { state: true },
     me: { attribute: false },
   };
@@ -27,6 +29,7 @@ export class AdminPanel extends LitElement {
     this.users = [];
     this.teams = [];
     this.boards = [];
+    this.invited = [];
     this.session = { mode: 'nowip', timeLimitMinutes: null };
     this.selectedBoard = null;
   }
@@ -39,12 +42,13 @@ export class AdminPanel extends LitElement {
     this._u = watchUsers((l) => { this.users = l; });
     this._t = watchTeams((l) => { this.teams = l; });
     this._s = watchSession((s) => { this.session = s; });
+    this._i = watchInvited((l) => { this.invited = l; });
     this._b = watchBoards((l) => {
       this.boards = l;
       if (this.selectedBoard) this.selectedBoard = l.find((b) => b.id === this.selectedBoard.id) || null;
     });
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._u?.(); this._t?.(); this._b?.(); this._s?.(); }
+  disconnectedCallback() { super.disconnectedCallback(); this._u?.(); this._t?.(); this._b?.(); this._s?.(); this._i?.(); }
 
   teamName(id) { return this.teams.find((t) => t.id === id)?.name || '—'; }
 
@@ -69,11 +73,21 @@ export class AdminPanel extends LitElement {
   }
 
   // ---------------- Personas ----------------
+  teamNameOf(uid) {
+    const t = this.teams.find((x) => x.members && x.members[uid]);
+    return t ? `${t.name} · ${t.members[uid]}` : null;
+  }
   renderPeople() {
     return html`
-      <div class="card">
+      <div class="card stack">
+        <h3 style="margin:0">Pre-registrar personas por email</h3>
+        <p class="muted" style="margin:0">Pega los correos (uno por línea o separados por comas). Cuando entren con ese correo se asociarán solos al equipo y rol que les asignes.</p>
+        <textarea id="invEmails" rows="3" placeholder="ana@correo.com, luis@correo.com…" style="width:100%"></textarea>
+        <div><button class="btn-primary" @click=${() => this.addInvitedEmails()}>+ Añadir personas</button></div>
+      </div>
+      <div class="card" style="margin-top:12px">
         <table class="t">
-          <thead><tr><th></th><th>Nombre</th><th>Email</th><th>Rol app</th><th>Tablero · rol juego</th><th></th></tr></thead>
+          <thead><tr><th></th><th>Nombre</th><th>Email</th><th>Estado</th><th>Equipo · rol</th><th></th></tr></thead>
           <tbody>
             ${this.users.map((u) => html`
               <tr>
@@ -81,19 +95,39 @@ export class AdminPanel extends LitElement {
                 <td>${u.name || '—'}</td>
                 <td class="muted">${u.email || ''}</td>
                 <td>${u.role === 'admin' ? html`<span class="tag admin">admin</span>` : html`<span class="tag">jugador</span>`}</td>
-                <td>${u.boardId ? html`<span class="tag">${this.boards.find((b) => b.id === u.boardId)?.name || u.boardId}</span> ${u.gameRole ? html`<span class="tag role-${u.gameRole}">${u.gameRole}</span>` : ''}` : html`<span class="muted">sin asignar</span>`}</td>
-                <td>
-                  <button class="btn-sm" @click=${() => this.toggleAdmin(u)}>
-                    ${u.role === 'admin' ? 'Quitar admin' : 'Hacer admin'}
-                  </button>
-                </td>
+                <td>${this.teamNameOf(u.id) ? html`<span class="tag">${this.teamNameOf(u.id)}</span>` : html`<span class="muted">sin equipo</span>`}</td>
+                <td><button class="btn-sm" @click=${() => this.toggleAdmin(u)}>${u.role === 'admin' ? 'Quitar admin' : 'Hacer admin'}</button></td>
+              </tr>`)}
+            ${this.invited.map((iv) => html`
+              <tr>
+                <td>✉️</td>
+                <td>${iv.name || '—'}</td>
+                <td class="muted">${iv.email}</td>
+                <td><span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span></td>
+                <td>${iv.teamId ? html`<span class="tag">${this.teams.find((t) => t.id === iv.teamId)?.name || iv.teamId} · ${iv.role || '—'}</span>` : html`<span class="muted">sin equipo</span>`}</td>
+                <td><button class="btn-sm btn-danger" @click=${() => this.removeInvited(iv)}>Eliminar</button></td>
               </tr>`)}
           </tbody>
         </table>
-        ${this.users.length === 0 ? html`<p class="empty-state">Aún no hay personas registradas. Comparte el enlace y pídeles que entren con Google.</p>` : ''}
+        ${this.users.length === 0 && this.invited.length === 0 ? html`<p class="empty-state">Aún no hay personas. Pre-regístralas por email o pide que entren con Google.</p>` : ''}
       </div>
       ${this.tableStyles()}
     `;
+  }
+  async addInvitedEmails() {
+    const raw = this.querySelector('#invEmails').value || '';
+    const emails = raw.split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter((e) => e.includes('@'));
+    if (emails.length === 0) return toast('Escribe al menos un correo válido', 'warning');
+    const existing = new Set([...this.users.map((u) => (u.email || '').toLowerCase()), ...this.invited.map((i) => i.email)]);
+    let added = 0;
+    for (const e of emails) { if (!existing.has(e)) { await addInvited(e); added++; } }
+    this.querySelector('#invEmails').value = '';
+    toast(`${added} persona(s) pre-registrada(s)`, 'success');
+  }
+  async removeInvited(iv) {
+    if (await confirmDialog(`¿Eliminar el pre-registro de ${iv.email}?`, { title: 'Eliminar pendiente', danger: true })) {
+      await deleteInvited(iv.id); toast('Pre-registro eliminado', 'success');
+    }
   }
   async toggleAdmin(u) {
     if (u.id === this.me?.uid && u.role === 'admin') {
@@ -121,9 +155,23 @@ export class AdminPanel extends LitElement {
     `;
   }
 
-  renderTeamCard(t) {
+  /** Lista combinada de miembros del equipo: reales (con uid) + pendientes (invitados). */
+  teamMemberList(t) {
+    const list = [];
     const members = t.members || {};
-    const counts = ROLES.reduce((a, r) => { a[r] = Object.values(members).filter((x) => x === r).length; return a; }, {});
+    for (const [uid, role] of Object.entries(members)) {
+      const u = this.users.find((x) => x.id === uid);
+      list.push({ id: uid, name: u?.name || u?.email || uid, role, invited: false });
+    }
+    for (const iv of this.invited) {
+      if (iv.teamId === t.id) list.push({ id: iv.id, name: iv.name || iv.email, email: iv.email, role: iv.role || 'DEV', invited: true });
+    }
+    return list;
+  }
+
+  renderTeamCard(t) {
+    const list = this.teamMemberList(t);
+    const counts = ROLES.reduce((a, r) => { a[r] = list.filter((p) => p.role === r).length; return a; }, {});
     const boardNoWip = this.boards.find((b) => b.id === t.boardNoWip);
     const boardWip = this.boards.find((b) => b.id === t.boardWip);
     return html`
@@ -139,31 +187,77 @@ export class AdminPanel extends LitElement {
           <span class="tag role-PM">PM: ${counts.PM} <span class="muted">(1)</span></span>
           <span class="tag role-DEV">DEV: ${counts.DEV} <span class="muted">(2-3)</span></span>
           <span class="tag role-QA">QA: ${counts.QA} <span class="muted">(1-2)</span></span>
-          <span class="muted">${Object.keys(members).length} personas</span>
+          <span class="muted">${list.length} personas</span>
         </div>
 
-        <h3 style="margin:6px 0 0">Personas y roles</h3>
-        <table class="t">
-          <thead><tr><th>Persona</th><th>Rol en el equipo</th></tr></thead>
-          <tbody>
-            ${this.users.map((u) => html`
-              <tr>
-                <td>${u.name || u.email}</td>
-                <td>
-                  <select @change=${(e) => this.assign(t, u, e.target.value)}>
-                    <option value="" ?selected=${!members[u.id]}>— Sin asignar —</option>
-                    ${ROLES.map((r) => html`<option value=${r} ?selected=${members[u.id] === r}>${r}</option>`)}
-                  </select>
-                </td>
-              </tr>`)}
-          </tbody>
-        </table>
+        <div class="flex-between">
+          <h3 style="margin:6px 0 0">Personas del equipo</h3>
+          <button class="btn-sm btn-primary" @click=${() => this.openAddPeople(t)}>➕ Añadir personas</button>
+        </div>
+        ${list.length === 0 ? html`<p class="muted" style="margin:0">Sin personas. Pulsa «Añadir personas».</p>` : html`
+          <table class="t">
+            <thead><tr><th>Persona</th><th>Rol</th><th></th></tr></thead>
+            <tbody>
+              ${list.map((p) => html`
+                <tr>
+                  <td>${p.name} ${p.invited ? html`<span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span>` : ''}</td>
+                  <td>
+                    <select @change=${(e) => this.setMemberRole(t, p, e.target.value)}>
+                      ${ROLES.map((r) => html`<option value=${r} ?selected=${p.role === r}>${r}</option>`)}
+                    </select>
+                  </td>
+                  <td><button class="btn-sm btn-danger" @click=${() => this.removeMember(t, p)}>Quitar</button></td>
+                </tr>`)}
+            </tbody>
+          </table>`}
 
         <h3 style="margin:6px 0 0">Tableros del equipo</h3>
         ${this.renderTeamBoardRow(boardNoWip, 'sin WIP')}
         ${this.renderTeamBoardRow(boardWip, 'con WIP')}
       </div>
     `;
+  }
+  async setMemberRole(t, p, role) {
+    if (p.invited) await setInvitedAssignment(p.id, t.id, role);
+    else await assignToTeam(t, p.id, role);
+    toast(`${p.name} → ${role}`, 'success');
+  }
+  async removeMember(t, p) {
+    if (p.invited) await setInvitedAssignment(p.id, null, null);
+    else await unassignFromTeam(t, p.id);
+    toast(`${p.name} fuera del equipo`, 'info');
+  }
+  openAddPeople(t) {
+    const inTeam = new Set(Object.keys(t.members || {}));
+    const realCandidates = this.users.filter((u) => !inTeam.has(u.id));
+    const invCandidates = this.invited.filter((iv) => iv.teamId !== t.id);
+    const wrap = document.createElement('div');
+    if (realCandidates.length === 0 && invCandidates.length === 0) {
+      wrap.innerHTML = '<p class="muted">No hay más personas disponibles. Pre-registra correos en la pestaña «Personas».</p>';
+    }
+    const mk = (id, label, sub, invited) => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:5px 0;cursor:pointer';
+      row.innerHTML = `<input type="checkbox" data-id="${id}" data-inv="${invited ? 1 : 0}"><span>${label}${sub ? ` <span style="opacity:.6">${sub}</span>` : ''}${invited ? ' <span style="background:#3a3416;color:#ffe08a;border-radius:999px;padding:1px 8px;font-size:.7rem">pendiente</span>' : ''}</span>`;
+      wrap.appendChild(row);
+    };
+    realCandidates.forEach((u) => mk(u.id, u.name || u.email, (u.name && u.email) ? u.email : '', false));
+    invCandidates.forEach((iv) => mk(iv.id, iv.name || iv.email, iv.email, true));
+    modal(wrap, {
+      title: `Añadir personas a ${t.name}`,
+      actions: [
+        { label: 'Cancelar', onClick: (c) => c() },
+        { label: 'Añadir seleccionadas', variant: 'primary', onClick: async (c) => {
+          const checks = [...wrap.querySelectorAll('input[type=checkbox]:checked')];
+          for (const ch of checks) {
+            if (ch.dataset.inv === '1') await setInvitedAssignment(ch.dataset.id, t.id, 'DEV');
+            else await assignToTeam(t, ch.dataset.id, 'DEV');
+          }
+          c();
+          toast(`${checks.length} persona(s) añadida(s)`, 'success');
+        } },
+      ],
+    });
   }
 
   renderTeamBoardRow(b, label) {
@@ -202,11 +296,6 @@ export class AdminPanel extends LitElement {
   async renameBoardPrompt(b) {
     const name = await promptDialog('Nuevo nombre del tablero', { title: 'Renombrar tablero', value: b.name });
     if (name) { await renameBoard(b.id, name); toast('Tablero renombrado', 'success'); }
-  }
-  async assign(team, u, role) {
-    if (!role) { await unassignFromTeam(team, u.id); toast(`${u.name || u.email} sin asignar`, 'info'); return; }
-    await assignToTeam(team, u.id, role);
-    toast(`${u.name || u.email} → ${role}`, 'success');
   }
 
   // ---------------- Configuración de columnas de un tablero ----------------

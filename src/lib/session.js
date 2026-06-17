@@ -7,6 +7,7 @@ import {
 } from 'firebase/auth';
 import { ref, get, set, update, serverTimestamp } from 'firebase/database';
 import { auth, db, ADMIN_EMAILS } from './firebase.js';
+import { claimInvitedOnLogin } from './db.js';
 
 const provider = new GoogleAuthProvider();
 
@@ -64,6 +65,7 @@ export function watchSession(callback) {
     if (!user) return callback({ user: null, profile: null });
     try {
       const profile = await ensureUserRecord(user);
+      try { await claimInvitedOnLogin(user); } catch (e) { console.warn('No se pudo reclamar el pre-registro:', e); }
       callback({ user, profile });
     } catch (err) {
       console.error('Error asegurando el registro de usuario:', err);
