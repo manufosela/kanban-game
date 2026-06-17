@@ -90,7 +90,7 @@ export class ResultsView extends LitElement {
     return html`
       <div class="card stack" style="margin-top:14px">
         <div class="flex-between">
-          <h2 style="margin:0">Ronda ${g.round} · ${g.wipEnabled ? 'con WIP' : 'sin WIP'} ${g.status === 'finished' ? '(terminada)' : `(turno ${g.turn}/${R.MAX_TURNS})`}</h2>
+          <h2 style="margin:0">Partida ${g.wipEnabled ? 'con WIP' : 'sin WIP'} ${g.status === 'finished' ? '(terminada)' : `(ciclo ${g.turn}/${g.totalCycles || '?'})`}</h2>
           <div class="row">
             <span class="tag">✅ Done: <strong>${R.doneTotal(g)}</strong></span>
             ${bn ? html`<span class="tag role-QA">🍶 Cuello de botella: ${bn.name}</span>` : ''}

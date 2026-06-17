@@ -2,11 +2,14 @@ import { LitElement, html } from 'lit';
 import { watchBoard } from '../lib/db.js';
 import {
   watchGame, applyAction, STEP, STEP_ROLE, STEP_LABEL,
+  roundInfo, addRonda, setGameColumnWip, setGameRole,
 } from '../lib/game.js';
 import * as R from '../lib/rules.js';
-import { toast } from '../lib/ui.js';
+import { toast, promptDialog, confirmDialog } from '../lib/ui.js';
 import './dice-roller.js';
 import './round-timer.js';
+
+const ROLES = ['PM', 'DEV', 'QA'];
 
 const COL_ACCENTS = ['#8a94a6', '#6c8cff', '#4dd0e1', '#b07cff', '#ffb74d', '#4db6ac', '#66bb6a'];
 
@@ -36,7 +39,8 @@ export class GameBoard extends LitElement {
   }
   disconnectedCallback() { super.disconnectedCallback(); this._wb?.(); this._wg?.(); }
 
-  get myGameRole() { return this.board?.roleAssignments?.[this.me?.uid] || null; }
+  get myGameRole() { return this.game?.roleAssignments?.[this.me?.uid] ?? this.board?.roleAssignments?.[this.me?.uid] ?? null; }
+  get roleAssignments() { return this.game?.roleAssignments || this.board?.roleAssignments || {}; }
   get isAdmin() { return this.me?.isAdmin; }
   get activeRole() { return this.game ? STEP_ROLE[this.game.step] : null; }
   get canAct() { return this.isAdmin || (this.myGameRole && this.myGameRole === this.activeRole); }
@@ -58,6 +62,7 @@ export class GameBoard extends LitElement {
       ${this.renderTopBar()}
       ${this.renderColumns()}
       ${this.game.status === 'finished' ? this.renderFinished() : this.renderControls()}
+      ${this.game.status === 'playing' && this.canAct ? this.renderPreview() : ''}
       ${this.renderLog()}
       ${this.styles()}
     `;
@@ -88,29 +93,128 @@ export class GameBoard extends LitElement {
     const g = this.game;
     const role = this.activeRole;
     const youAct = this.canAct && g.status === 'playing';
+    const ri = roundInfo(g);
     return html`
       <div class="topbar card">
         <div>
           <a href="/dashboard" class="muted">← Tableros</a>
           <h1 style="margin:4px 0">${this.board.name}</h1>
-          <span class="tag ${g.wipEnabled ? 'role-QA' : ''}">Ronda ${g.round} · ${g.wipEnabled ? 'con WIP' : 'sin WIP'}</span>
-          ${this.myGameRole ? html`<span class="tag role-${this.myGameRole}">Tu rol: ${this.myGameRole}</span>` : (this.isAdmin ? html`<span class="tag admin">facilitador</span>` : '')}
+          <span class="tag ${g.wipEnabled ? 'role-QA' : ''}">Partida ${g.wipEnabled ? 'con WIP' : 'sin WIP'}</span>
+          ${this.renderRolePicker()}
         </div>
         <div class="status">
-          <div class="turn">Turno <strong>${g.turn}</strong> / ${R.MAX_TURNS}</div>
-          <div class="done">✅ Done: <strong>${R.doneTotal(g)}</strong></div>
+          <div class="turn">Ronda <strong>${ri.ronda}</strong>/${ri.rondas} · Ciclo <strong>${ri.cicloEnRonda}</strong>/${ri.ciclos}</div>
+          <div class="done">✅ Done: <strong>${R.doneTotal(g)}</strong> <span class="muted">(${ri.turn}/${ri.total} ciclos)</span></div>
           ${g.startedAt ? html`<kbg-round-timer .startedAt=${g.startedAt} .endedAt=${g.endedAt || null} .timeLimit=${g.timeLimit || null} @timeup=${() => this.onTimeUp()}></kbg-round-timer>` : ''}
         </div>
         <div class="stepinfo ${youAct ? 'you' : ''}">
           <div class="muted">${STEP_LABEL[g.step]}</div>
           <div class="who">
-            ${g.status === 'finished' ? 'Ronda terminada'
+            ${g.status === 'finished' ? 'Partida terminada'
               : youAct ? html`<span class="badge-you">Te toca a ti (${role})</span>`
               : html`Esperando a <span class="tag role-${role}">${role}</span>`}
           </div>
+          ${this.isAdmin && g.status === 'playing' ? html`<button class="btn-sm" style="margin-top:6px" @click=${() => this.addRound()}>➕ Añadir ronda</button>` : ''}
         </div>
       </div>
     `;
+  }
+
+  /** Selector de rol del propio jugador (y, si es admin, de cualquiera vía panel aparte). */
+  renderRolePicker() {
+    if (this.game?.status !== 'playing') {
+      return this.myGameRole ? html`<span class="tag role-${this.myGameRole}">Tu rol: ${this.myGameRole}</span>` : (this.isAdmin ? html`<span class="tag admin">facilitador</span>` : '');
+    }
+    const mine = this.myGameRole;
+    return html`
+      <label class="rolepick">Tu rol:
+        <select @change=${(e) => this.changeMyRole(e.target.value)}>
+          <option value="" ?selected=${!mine}>— sin rol —</option>
+          ${ROLES.map((r) => html`<option value=${r} ?selected=${mine === r}>${r}</option>`)}
+        </select>
+      </label>
+      ${this.isAdmin ? html`<button class="btn-sm" @click=${() => this.openAdminRoles()}>👥 Roles</button>` : ''}
+    `;
+  }
+  async changeMyRole(role) {
+    await setGameRole(this.boardId, this.me.uid, role || null);
+    toast(role ? `Ahora eres ${role}` : 'Sin rol', 'success');
+  }
+  async addRound() {
+    if (await confirmDialog('¿Añadir una ronda a esta partida? Se alargará la partida.', { title: 'Añadir ronda' })) {
+      await addRonda(this.boardId);
+      toast('Ronda añadida', 'success');
+    }
+  }
+  async editWip(col) {
+    const cur = R.wipLimitFor(this.game, col.id);
+    const val = await promptDialog(`Nuevo límite WIP de "${col.name}" (0 = sin límite)`, { title: 'Cambiar WIP', value: cur === Infinity ? '0' : String(cur) });
+    if (val === null) return;
+    await setGameColumnWip(this.boardId, col.id, val);
+    toast('WIP actualizado', 'success');
+  }
+  openAdminRoles() {
+    // Panel simple: cambiar el rol de cualquier persona asignada.
+    const wrap = document.createElement('div');
+    const ra = this.roleAssignments;
+    const ids = Object.keys(ra);
+    wrap.innerHTML = ids.length ? '' : '<p class="muted">No hay personas con rol en esta partida.</p>';
+    ids.forEach((uid) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;align-items:center;justify-content:space-between;padding:4px 0';
+      row.innerHTML = `<span>${uid}</span>`;
+      const sel = document.createElement('select');
+      sel.innerHTML = `<option value="">—</option>` + ROLES.map((r) => `<option value="${r}" ${ra[uid] === r ? 'selected' : ''}>${r}</option>`).join('');
+      sel.onchange = () => setGameRole(this.boardId, uid, sel.value || null);
+      row.appendChild(sel);
+      wrap.appendChild(row);
+    });
+    confirmDialog(wrap, { title: 'Cambiar roles (en vivo)', confirmLabel: 'Cerrar' });
+  }
+
+  renderPreview() {
+    const g = this.game;
+    const a = this.anchors();
+    const wip = g.wipEnabled;
+    const name = (id) => this.cols().find((c) => c.id === id)?.name || '';
+    const roomTxt = (colId) => {
+      const limit = R.wipLimitFor(g, colId);
+      if (limit === Infinity) return null;
+      return `${R.countInColumn(g.cards, colId)}/${limit}`;
+    };
+    let msg = null; let blocked = false;
+    if (g.step === STEP.PM_ADD) {
+      msg = 'El PM meterá 3 historias nuevas en Backlog.';
+    } else if (g.step === STEP.PM_PULL) {
+      const room = roomTxt(a.id.analysis);
+      if (wip && !R.hasRoom(g, a.id.analysis)) { blocked = true; msg = `Análisis está lleno (${room}): no entrarán historias aunque el dado sea alto.`; }
+      else msg = `El PM moverá de Backlog → Análisis según el dado${wip && room ? ` (Análisis ${room})` : ''}.`;
+    } else if (g.step === STEP.DEVS) {
+      const sel = this.selectedCardId ? g.cards[this.selectedCardId] : null;
+      if (!sel) { msg = 'Selecciona una historia y una opción para ver qué ocurrirá.'; }
+      else if (this.devAction === 'review') {
+        if (sel.col !== a.id.review) { blocked = true; msg = `#${sel.number} no está en Revisión PR; no se puede revisar.`; }
+        else if (wip && !R.hasRoom(g, a.id.qa)) { blocked = true; msg = `#${sel.number}: QA llena (${roomTxt(a.id.qa)}); no podrá pasar a QA.`; }
+        else msg = `#${sel.number}: Revisión PR → QA (si el dado es 3+).`;
+      } else {
+        const toId = R.nextColumnId(g, sel.col);
+        if (!R.advanceSources(g).includes(sel.col)) { blocked = true; msg = `#${sel.number} no puede avanzar desde ${name(sel.col)}.`; }
+        else if (wip && !R.hasRoom(g, toId)) { blocked = true; msg = `#${sel.number}: ${name(toId)} llena (${roomTxt(toId)}); no avanzará aunque el dado lo permita.`; }
+        else msg = `#${sel.number}: ${name(sel.col)} → ${name(toId)} (si ${this.devAction === 'pair' ? 'la suma es 5+' : 'el dado es 3+'}).`;
+      }
+    } else if (g.step === STEP.QA) {
+      const sel = this.selectedCardId ? g.cards[this.selectedCardId] : null;
+      if (!sel || sel.col !== a.id.qa) { msg = 'Selecciona una historia de la columna QA.'; }
+      else {
+        const full = wip && !R.hasRoom(g, a.id.validation);
+        blocked = full;
+        msg = `#${sel.number}: con 3+ → Validación PM${full ? ` (LLENA ${roomTxt(a.id.validation)}: se quedará en QA)` : ''}; con 1-2 es bug → vuelve a Desarrollo.`;
+      }
+    } else if (g.step === STEP.PM_VALIDATE) {
+      msg = 'El PM moverá de Validación PM → Done según el dado.';
+    }
+    if (!msg) return '';
+    return html`<div class="preview ${blocked ? 'blocked' : ''}">${blocked ? '🚫' : '👉'} ${msg}</div>`;
   }
 
   renderColumns() {
@@ -128,12 +232,16 @@ export class GameBoard extends LitElement {
             const over = hasLimit && cards.length > limit;
             const full = hasLimit && cards.length >= limit;
             const accent = COL_ACCENTS[i % COL_ACCENTS.length];
+            const wipEditable = this.isAdmin && g.wipEnabled && g.status === 'playing'
+              && c.id !== a.id.backlog && c.id !== a.id.done;
             return html`
               <div class="column" style="--accent:${accent}">
                 <div class="col-head">
                   <span class="col-name" title=${c.name}>${c.name}</span>
-                  <span class="wip ${over ? 'over' : full ? 'full' : ''}">
-                    ${cards.length}${hasLimit ? ` / ${limit}` : ''}
+                  <span class="wip ${over ? 'over' : full ? 'full' : ''} ${wipEditable ? 'editable' : ''}"
+                        title=${wipEditable ? 'Pulsa para cambiar el WIP' : ''}
+                        @click=${wipEditable ? () => this.editWip(c) : null}>
+                    ${cards.length}${hasLimit ? ` / ${limit}` : ''}${wipEditable ? ' ✎' : ''}
                   </span>
                 </div>
                 <div class="col-body">
@@ -294,6 +402,12 @@ export class GameBoard extends LitElement {
       kbg-game .wip { font-size: .75rem; color: var(--c-text-dim); background: var(--c-surface-2); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
       kbg-game .wip.full { color: #1a1200; background: var(--c-warning); }
       kbg-game .wip.over { color: #fff; background: var(--c-danger); }
+      kbg-game .wip.editable { cursor: pointer; outline: 1px dashed var(--c-text-dim); }
+      kbg-game .wip.editable:hover { outline-color: var(--c-primary); }
+      kbg-game .rolepick { display: inline-flex; align-items: center; gap: 4px; font-size: .8rem; color: var(--c-text-soft); }
+      kbg-game .rolepick select { width: auto; padding: 2px 6px; }
+      kbg-game .preview { margin-top: 10px; padding: 10px 14px; border-radius: 8px; background: #14304a; border-left: 4px solid var(--c-primary); font-size: .95rem; }
+      kbg-game .preview.blocked { background: #3a1414; border-left-color: var(--c-danger); }
       kbg-game .col-body { padding: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start; }
       kbg-game .postit { width: 56px; height: 56px; background: var(--c-postit); color: var(--c-postit-text); border-radius: 6px; box-shadow: var(--shadow-1); display: flex; align-items: center; justify-content: center; position: relative; font-weight: 800; transform: rotate(-1.5deg); }
       kbg-game .postit:nth-child(even) { transform: rotate(1.5deg); }

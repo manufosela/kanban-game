@@ -1,6 +1,6 @@
 // Motor de partida: persiste el estado en /games/{boardId} y aplica las
 // acciones de cada paso del turno con transacciones, usando la lógica pura de rules.js.
-import { ref, onValue, runTransaction, get, set } from 'firebase/database';
+import { ref, onValue, runTransaction, get, set, update } from 'firebase/database';
 import { db } from './firebase.js';
 import * as R from './rules.js';
 
@@ -32,19 +32,28 @@ export function watchGame(boardId, cb) {
   return onValue(ref(db, `games/${boardId}`), (s) => cb(s.exists() ? s.val() : null));
 }
 
-/** Inicializa (o reinicia) la partida de una ronda. */
-export async function startGame(board, round, wipEnabled = round === 2, timeLimitMinutes = null) {
+/**
+ * Inicializa (o reinicia) una partida. Una partida dura M rondas × N ciclos.
+ * opts = { wipEnabled, rondas, ciclos, timeLimitMinutes }
+ */
+export async function startGame(board, { wipEnabled = false, rondas = 2, ciclos = 5, timeLimitMinutes = null } = {}) {
   const cols = R.orderedColumns(board.columns).map((c, i) => ({
     id: c.id, name: c.name, order: i, wipLimit: c.wipLimit ?? null,
   }));
+  const M = Math.max(1, Number(rondas) || 1);
+  const N = Math.max(1, Number(ciclos) || 1);
   const limitMin = Number(timeLimitMinutes) > 0 ? Number(timeLimitMinutes) : null;
   const state = {
-    round,
+    round: 1,
     wipEnabled: !!wipEnabled,
-    turn: 1,
+    rondas: M,
+    ciclos: N,
+    totalCycles: M * N,
+    turn: 1, // ciclo actual (1..totalCycles)
     step: STEP.PM_ADD,
     status: 'playing',
     columns: cols,
+    roleAssignments: board.roleAssignments || {}, // copia editable en vivo
     cards: {},
     doneCount: 0,
     nextNumber: 1,
@@ -53,22 +62,67 @@ export async function startGame(board, round, wipEnabled = round === 2, timeLimi
     startedAt: Date.now(),
     endedAt: null,
     timeLimit: limitMin ? limitMin * 60 : null, // segundos
-    log: [{ t: 0, text: `Comienza la Ronda ${round}${wipEnabled ? ' (con WIP)' : ' (sin WIP)'}.` }],
+    log: [{ t: 0, text: `Comienza la partida ${wipEnabled ? '(con WIP)' : '(sin WIP)'}: ${M} ronda(s) × ${N} ciclo(s).` }],
   };
   await runTransaction(ref(db, `games/${board.id}`), () => state);
-  // Persistir también la ronda activa en el tablero.
-  await runTransaction(ref(db, `boards/${board.id}/round`), () => round);
+  await runTransaction(ref(db, `boards/${board.id}/round`), () => 1);
   await runTransaction(ref(db, `boards/${board.id}/status`), () => 'playing');
 }
 
 /**
- * Inicio centralizado (facilitador): arranca la misma ronda en varios tableros a la vez.
- * `mode` define wipEnabled. Devuelve el número de tableros iniciados.
+ * Inicio centralizado (facilitador): arranca la partida del modo en varios tableros a la vez.
+ * `mode` define wipEnabled. `opts` = { rondas, ciclos, timeLimitMinutes }.
  */
-export async function startRoundForBoards(boards, round, mode, timeLimitMinutes = null) {
+export async function startPartidaForBoards(boards, mode, opts = {}) {
   const wipEnabled = mode === 'wip';
-  await Promise.all((boards || []).map((b) => startGame(b, round, wipEnabled, timeLimitMinutes)));
+  await Promise.all((boards || []).map((b) => startGame(b, { ...opts, wipEnabled })));
   return (boards || []).length;
+}
+
+/** Añade una ronda (N ciclos más) a una partida en curso. */
+export async function addRonda(boardId) {
+  await runTransaction(ref(db, `games/${boardId}`), (s) => {
+    if (!s || s.status !== 'playing') return s;
+    s.rondas = (s.rondas || 1) + 1;
+    s.totalCycles = (s.totalCycles || 0) + (s.ciclos || 1);
+    const log = Array.isArray(s.log) ? s.log : [];
+    s.log = [...log, { t: Date.now(), turn: s.turn, text: `El moderador añade una ronda: ahora ${s.rondas} ronda(s).` }].slice(-60);
+    return s;
+  });
+}
+
+/** Cambia el límite WIP de una columna en una partida en curso (y lo persiste en el tablero). */
+export async function setGameColumnWip(boardId, colId, wipLimit) {
+  const val = (wipLimit === '' || wipLimit == null) ? null : Math.max(0, Number(wipLimit)) || null;
+  await runTransaction(ref(db, `games/${boardId}`), (s) => {
+    if (!s) return s;
+    const cols = Array.isArray(s.columns) ? s.columns : Object.values(s.columns || {});
+    const col = cols.find((c) => c.id === colId);
+    if (col) col.wipLimit = val;
+    s.columns = cols;
+    return s;
+  });
+  await update(ref(db, `boards/${boardId}/columns/${colId}`), { wipLimit: val });
+}
+
+/** Cambia el rol de una persona en una partida en curso. */
+export async function setGameRole(boardId, uid, role) {
+  await set(ref(db, `games/${boardId}/roleAssignments/${uid}`), role || null);
+}
+
+/** Ronda actual (1..M) y ciclo dentro de la ronda (1..N) a partir del turno (ciclo global). */
+export function roundInfo(state) {
+  const N = state?.ciclos || R.MAX_TURNS;
+  const turn = state?.turn || 1;
+  const M = state?.rondas || 1;
+  return {
+    ronda: Math.min(M, Math.floor((turn - 1) / N) + 1),
+    cicloEnRonda: ((turn - 1) % N) + 1,
+    ciclos: N,
+    rondas: M,
+    turn,
+    total: state?.totalCycles || N,
+  };
 }
 
 function pushLog(state, text) {
@@ -129,18 +183,21 @@ function normalize(state) {
 }
 
 function endTurn(s) {
-  // Snapshot del turno que termina.
+  // Snapshot del ciclo que termina (incluye a qué ronda pertenece).
+  const N = s.ciclos || R.MAX_TURNS;
   const snap = R.turnSnapshot(s);
+  snap.ronda = Math.floor((s.turn - 1) / N) + 1;
   s.snapshots = { ...(s.snapshots || {}), [s.turn]: snap };
-  if (s.turn >= R.MAX_TURNS) {
+  const total = s.totalCycles || R.MAX_TURNS;
+  if (s.turn >= total) {
     s.status = 'finished';
     s.endedAt = Date.now();
-    pushLog(s, `Fin de la Ronda ${s.round}. Total en Done: ${R.doneTotal(s)}.`);
+    pushLog(s, `Fin de la partida ${s.wipEnabled ? '(con WIP)' : '(sin WIP)'}. Total en Done: ${R.doneTotal(s)}.`);
   } else {
     s.turn += 1;
     s.step = STEP.PM_ADD;
     s.dice = null;
-    pushLog(s, `Comienza el turno ${s.turn}.`);
+    pushLog(s, `Comienza el ciclo ${s.turn}.`);
   }
 }
 

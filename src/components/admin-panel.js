@@ -4,7 +4,7 @@ import {
   setUserRole, createTeam, renameTeam, deleteTeam,
   renameBoard, setBoardColumns, assignToTeam, unassignFromTeam, setSession,
 } from '../lib/db.js';
-import { startRoundForBoards } from '../lib/game.js';
+import { startPartidaForBoards } from '../lib/game.js';
 import { defaultColumns } from '../lib/rules.js';
 import { toast, confirmDialog, promptDialog } from '../lib/ui.js';
 
@@ -301,7 +301,8 @@ export class AdminPanel extends LitElement {
     const mode = this.session?.mode || 'nowip';
     const modeBoards = this.boards.filter((b) => b.mode === mode);
     const anyPlaying = modeBoards.some((b) => b.status === 'playing');
-    const nextRound = Math.max(0, ...modeBoards.map((b) => Number(b.round) || 0)) + 1;
+    const rondas = this.session?.rondas ?? 3;
+    const ciclos = this.session?.ciclos ?? 5;
     const teamless = modeBoards.filter((b) => !this.teams.find((t) => t.id === b.teamId));
     const emptyTeams = modeBoards.filter((b) => {
       const t = this.teams.find((x) => x.id === b.teamId);
@@ -316,17 +317,18 @@ export class AdminPanel extends LitElement {
           <button class=${mode === 'nowip' ? 'btn-primary' : ''} @click=${() => this.setMode('nowip')}>Sin WIP</button>
           <button class=${mode === 'wip' ? 'btn-primary' : ''} @click=${() => this.setMode('wip')}>Con WIP</button>
         </div>
-        <div class="row" style="gap:8px">
-          <label style="margin:0">Tiempo máximo por ronda (min):</label>
-          <input id="sessTime" type="number" min="0" .value=${this.session?.timeLimitMinutes ?? ''} placeholder="sin límite" style="width:130px">
-          <button class="btn-sm" @click=${() => this.saveSessionTime()}>💾 Guardar</button>
-          <span class="muted">Vacío = sin límite.</span>
+        <div class="row" style="gap:8px; flex-wrap:wrap; align-items:flex-end">
+          <div><label>Rondas</label><input id="sessRondas" type="number" min="1" .value=${rondas} style="width:80px"></div>
+          <div><label>Ciclos por ronda</label><input id="sessCiclos" type="number" min="1" .value=${ciclos} style="width:120px"></div>
+          <div><label>Tiempo máx. partida (min)</label><input id="sessTime" type="number" min="0" .value=${this.session?.timeLimitMinutes ?? ''} placeholder="sin límite" style="width:150px"></div>
+          <button class="btn-sm" @click=${() => this.saveSessionConfig()}>💾 Guardar</button>
+          <span class="muted">Total: ${rondas * ciclos} ciclos. Igual en ambos modos.</span>
         </div>
 
         <h3 style="margin:6px 0 0">Tableros del modo ${mode === 'wip' ? 'CON WIP' : 'SIN WIP'} (${modeBoards.length})</h3>
         ${modeBoards.length === 0 ? html`<p class="muted">No hay tableros. Crea equipos en la pestaña «Equipos y tableros».</p>` : html`
           <table class="t">
-            <thead><tr><th>Equipo</th><th>Personas</th><th>Estado</th><th>Ronda</th><th></th></tr></thead>
+            <thead><tr><th>Equipo</th><th>Personas</th><th>Estado</th><th></th></tr></thead>
             <tbody>
               ${modeBoards.map((b) => {
                 const team = this.teams.find((t) => t.id === b.teamId);
@@ -335,7 +337,6 @@ export class AdminPanel extends LitElement {
                   <td>${team?.name || '—'} ${n === 0 ? html`<span class="tag bad">sin personas</span>` : ''}</td>
                   <td>${n}</td>
                   <td>${b.status || 'setup'}</td>
-                  <td>${b.round || '—'}</td>
                   <td><a class="btn btn-sm" href="/board?id=${b.id}">▶ Abrir</a> <a class="btn btn-sm" href="/results?id=${b.id}">📊</a></td>
                 </tr>`;
               })}
@@ -344,24 +345,26 @@ export class AdminPanel extends LitElement {
 
         ${blocked ? html`<p class="bad" style="margin:0">⚠ No se puede iniciar: hay equipos sin personas o tableros sin equipo. Corrígelo en «Equipos y tableros».</p>` : ''}
         <div class="row" style="gap:10px; align-items:center">
-          <button class="btn-primary btn-lg" ?disabled=${modeBoards.length === 0 || anyPlaying || blocked} @click=${() => this.startNextRound()}>
-            ▶ Iniciar ronda ${nextRound} (${mode === 'wip' ? 'con WIP' : 'sin WIP'}) en todos
+          <button class="btn-primary btn-lg" ?disabled=${modeBoards.length === 0 || anyPlaying || blocked} @click=${() => this.startPartida()}>
+            ▶ Iniciar partida ${mode === 'wip' ? 'con WIP' : 'sin WIP'} (${rondas}×${ciclos}) en todos
           </button>
-          ${anyPlaying ? html`<span class="muted">Hay rondas en curso; espera a que terminen.</span>` : ''}
+          ${anyPlaying ? html`<span class="muted">Hay partidas en curso; espera a que terminen.</span>` : ''}
         </div>
-        <p class="muted" style="margin:0">Empieza por el modo <strong>Sin WIP</strong> (ronda 1 para todos). Cuando terminen, cambia a <strong>Con WIP</strong> y vuelve a iniciar.</p>
+        <p class="muted" style="margin:0">Juega primero <strong>Sin WIP</strong> y luego <strong>Con WIP</strong> con la misma configuración. Durante la partida, el moderador puede añadir rondas o cambiar el WIP desde cada tablero.</p>
       </div>
       ${this.tableStyles()}
     `;
   }
   async setMode(mode) { await setSession({ mode }); }
-  async saveSessionTime() {
-    const v = this.querySelector('#sessTime').value.trim();
-    const min = v === '' ? null : Math.max(0, Number(v)) || null;
-    await setSession({ timeLimitMinutes: min });
-    toast(min ? `Tiempo máximo: ${min} min` : 'Sin límite de tiempo', 'success');
+  async saveSessionConfig() {
+    const rondas = Math.max(1, Number(this.querySelector('#sessRondas').value) || 1);
+    const ciclos = Math.max(1, Number(this.querySelector('#sessCiclos').value) || 1);
+    const tv = this.querySelector('#sessTime').value.trim();
+    const timeLimitMinutes = tv === '' ? null : Math.max(0, Number(tv)) || null;
+    await setSession({ rondas, ciclos, timeLimitMinutes });
+    toast(`Configuración: ${rondas} rondas × ${ciclos} ciclos`, 'success');
   }
-  async startNextRound() {
+  async startPartida() {
     const mode = this.session?.mode || 'nowip';
     const modeBoards = this.boards.filter((b) => b.mode === mode);
     if (modeBoards.length === 0) return toast('No hay tableros de este modo', 'warning');
@@ -373,12 +376,13 @@ export class AdminPanel extends LitElement {
       else if (n === 0) problems.push(`Equipo "${team.name}" sin personas`);
     }
     if (problems.length) return toast('No se puede iniciar: ' + problems.join('; '), 'error', 6000);
-    if (modeBoards.some((b) => b.status === 'playing')) return toast('Hay rondas en curso.', 'warning');
-    const nextRound = Math.max(0, ...modeBoards.map((b) => Number(b.round) || 0)) + 1;
-    const ok = await confirmDialog(`¿Iniciar la ronda ${nextRound} (${mode === 'wip' ? 'con WIP' : 'sin WIP'}) en ${modeBoards.length} tablero(s) a la vez?`, { title: 'Iniciar ronda' });
+    if (modeBoards.some((b) => b.status === 'playing')) return toast('Hay partidas en curso.', 'warning');
+    const rondas = this.session?.rondas ?? 3;
+    const ciclos = this.session?.ciclos ?? 5;
+    const ok = await confirmDialog(`¿Iniciar la partida ${mode === 'wip' ? 'con WIP' : 'sin WIP'} (${rondas}×${ciclos} = ${rondas * ciclos} ciclos) en ${modeBoards.length} tablero(s)?`, { title: 'Iniciar partida' });
     if (!ok) return;
-    await startRoundForBoards(modeBoards, nextRound, mode, this.session?.timeLimitMinutes ?? null);
-    toast(`Ronda ${nextRound} iniciada en ${modeBoards.length} tablero(s)`, 'success');
+    await startPartidaForBoards(modeBoards, mode, { rondas, ciclos, timeLimitMinutes: this.session?.timeLimitMinutes ?? null });
+    toast(`Partida iniciada en ${modeBoards.length} tablero(s)`, 'success');
   }
 
   tableStyles() {
