@@ -4,6 +4,7 @@ import {
   setUserRole, createTeam, renameTeam, deleteTeam,
   renameBoard, setBoardColumns, assignToTeam, unassignFromTeam, setSession,
   addInvited, deleteInvited, setInvitedAssignment,
+  setUserDefaultRole, setInvitedRole,
 } from '../lib/db.js';
 import { startPartidaForBoards } from '../lib/game.js';
 import { defaultColumns } from '../lib/rules.js';
@@ -77,6 +78,12 @@ export class AdminPanel extends LitElement {
     const t = this.teams.find((x) => x.members && x.members[uid]);
     return t ? `${t.name} · ${t.members[uid]}` : null;
   }
+  roleSelect(current, onChange) {
+    return html`<select @change=${(e) => onChange(e.target.value || null)}>
+      <option value="" ?selected=${!current}>—</option>
+      ${ROLES.map((r) => html`<option value=${r} ?selected=${current === r}>${r}</option>`)}
+    </select>`;
+  }
   renderPeople() {
     return html`
       <div class="card stack">
@@ -87,13 +94,14 @@ export class AdminPanel extends LitElement {
       </div>
       <div class="card" style="margin-top:12px">
         <table class="t">
-          <thead><tr><th></th><th>Nombre</th><th>Email</th><th>Estado</th><th>Equipo · rol</th><th></th></tr></thead>
+          <thead><tr><th></th><th>Nombre</th><th>Email</th><th>Rol real</th><th>Estado</th><th>Equipo</th><th></th></tr></thead>
           <tbody>
             ${this.users.map((u) => html`
               <tr>
                 <td>${u.photoURL ? html`<img class="avatar" src=${u.photoURL} referrerpolicy="no-referrer" alt="">` : '👤'}</td>
                 <td>${u.name || '—'}</td>
                 <td class="muted">${u.email || ''}</td>
+                <td>${this.roleSelect(u.defaultRole, (v) => setUserDefaultRole(u.id, v))}</td>
                 <td>${u.role === 'admin' ? html`<span class="tag admin">admin</span>` : html`<span class="tag">jugador</span>`}</td>
                 <td>${this.teamNameOf(u.id) ? html`<span class="tag">${this.teamNameOf(u.id)}</span>` : html`<span class="muted">sin equipo</span>`}</td>
                 <td><button class="btn-sm" @click=${() => this.toggleAdmin(u)}>${u.role === 'admin' ? 'Quitar admin' : 'Hacer admin'}</button></td>
@@ -103,8 +111,9 @@ export class AdminPanel extends LitElement {
                 <td>✉️</td>
                 <td>${iv.name || '—'}</td>
                 <td class="muted">${iv.email}</td>
+                <td>${this.roleSelect(iv.role, (v) => setInvitedRole(iv.id, v))}</td>
                 <td><span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span></td>
-                <td>${iv.teamId ? html`<span class="tag">${this.teams.find((t) => t.id === iv.teamId)?.name || iv.teamId} · ${iv.role || '—'}</span>` : html`<span class="muted">sin equipo</span>`}</td>
+                <td>${iv.teamId ? html`<span class="tag">${this.teams.find((t) => t.id === iv.teamId)?.name || iv.teamId}</span>` : html`<span class="muted">sin equipo</span>`}</td>
                 <td><button class="btn-sm btn-danger" @click=${() => this.removeInvited(iv)}>Eliminar</button></td>
               </tr>`)}
           </tbody>
@@ -164,6 +173,12 @@ export class AdminPanel extends LitElement {
           <input id="newTeam" type="text" placeholder="Nombre del equipo" style="max-width:280px"
                  @keydown=${(e) => { if (e.key === 'Enter') this.addTeam(); }}>
           <button class="btn-primary" @click=${() => this.addTeam()}>+ Crear equipo</button>
+        </div>
+        <div class="row" style="gap:8px; align-items:flex-end">
+          <span class="muted">o automático:</span>
+          <div><label>Nº equipos</label><input id="nTeams" type="number" min="1" .value=${this.suggestTeamCount()} style="width:90px"></div>
+          <button class="btn-primary" @click=${() => this.generateTeams()}>🎲 Generar equipos al azar</button>
+          <span class="muted">reparte por rol real a quien no esté en un equipo (1 PM · 3 DEV · 2 QA por equipo)</span>
         </div>
         <p class="muted" style="margin:0">Cada equipo se crea con sus dos tableros: uno <strong>sin WIP</strong> y uno <strong>con WIP</strong>. Asigna a las personas una vez por equipo; juegan en ambos.</p>
       </div>
@@ -300,6 +315,52 @@ export class AdminPanel extends LitElement {
     await createTeam(name, this.me?.uid);
     input.value = '';
     toast('Equipo y sus 2 tableros creados', 'success');
+  }
+  /** Personas con rol real que no están en ningún equipo (reales + pendientes). */
+  unassignedPeople() {
+    const inAnyTeam = new Set();
+    this.teams.forEach((t) => Object.keys(t.members || {}).forEach((uid) => inAnyTeam.add(uid)));
+    const people = [];
+    this.users.forEach((u) => { if (u.defaultRole && !inAnyTeam.has(u.id)) people.push({ id: u.id, role: u.defaultRole, invited: false, name: u.name || u.email }); });
+    this.invited.forEach((iv) => { if (iv.role && !iv.teamId) people.push({ id: iv.id, role: iv.role, invited: true, name: iv.name || iv.email }); });
+    return people;
+  }
+  suggestTeamCount() {
+    return Math.max(1, this.unassignedPeople().filter((p) => p.role === 'PM').length);
+  }
+  async generateTeams() {
+    const nTeams = Math.max(1, Number(this.querySelector('#nTeams')?.value) || 1);
+    const people = this.unassignedPeople();
+    if (people.length === 0) return toast('No hay personas con rol real sin asignar. Ponles el rol en la pestaña Personas.', 'warning', 6000);
+    const byRole = { PM: [], DEV: [], QA: [] };
+    people.forEach((p) => { if (byRole[p.role]) byRole[p.role].push(p); });
+    const shuffle = (arr) => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+    shuffle(byRole.PM); shuffle(byRole.DEV); shuffle(byRole.QA);
+    const slots = Array.from({ length: nTeams }, () => ({ PM: [], DEV: [], QA: [] }));
+    const leftovers = [];
+    const place = (list, role, cap) => {
+      let ti = 0;
+      for (const p of list) {
+        let placed = false;
+        for (let k = 0; k < nTeams; k++) { const idx = (ti + k) % nTeams; if (slots[idx][role].length < cap) { slots[idx][role].push(p); ti = idx + 1; placed = true; break; } }
+        if (!placed) leftovers.push(p);
+      }
+    };
+    place(byRole.PM, 'PM', 1); place(byRole.DEV, 'DEV', 3); place(byRole.QA, 'QA', 2);
+    const assignedCount = people.length - leftovers.length;
+    const ok = await confirmDialog(`Se crearán ${nTeams} equipo(s) y se repartirán ${assignedCount} persona(s).${leftovers.length ? ` ${leftovers.length} quedarán sin asignar (las pones a mano).` : ''} ¿Continuar?`, { title: 'Generar equipos' });
+    if (!ok) return;
+    const base = this.teams.length;
+    for (let i = 0; i < nTeams; i++) {
+      const team = await createTeam(`Equipo ${base + i + 1}`, this.me?.uid);
+      for (const role of ROLES) {
+        for (const p of slots[i][role]) {
+          if (p.invited) await setInvitedAssignment(p.id, team.id, role);
+          else await assignToTeam(team, p.id, role);
+        }
+      }
+    }
+    toast(`${nTeams} equipo(s) generados${leftovers.length ? `, ${leftovers.length} sin asignar` : ''}`, 'success');
   }
   async renameTeam(t) {
     const name = await promptDialog('Nuevo nombre del equipo', { title: 'Renombrar equipo', value: t.name });

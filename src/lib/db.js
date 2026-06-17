@@ -35,6 +35,13 @@ function toList(obj) {
 export async function setUserRole(uid, role) {
   await update(ref(db, `users/${uid}`), { role });
 }
+/** Rol de juego por defecto (real) de una persona. */
+export async function setUserDefaultRole(uid, role) {
+  await update(ref(db, `users/${uid}`), { defaultRole: role || null });
+}
+export async function setInvitedRole(key, role) {
+  await update(ref(db, `invitedUsers/${key}`), { role: role || null });
+}
 
 // ---- Helpers de tablero ----
 function makeColumns(arr) {
@@ -71,7 +78,7 @@ export async function createTeam(name, createdBy) {
     members: {}, boardNoWip, boardWip,
   };
   await update(ref(db), updates);
-  return teamId;
+  return { id: teamId, name, members: {}, boardNoWip, boardWip };
 }
 export async function renameTeam(teamId, name) {
   await update(ref(db, `teams/${teamId}`), { name });
