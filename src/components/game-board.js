@@ -1,8 +1,8 @@
 import { LitElement, html } from 'lit';
-import { watchBoard } from '../lib/db.js';
+import { watchBoard, watchUsers } from '../lib/db.js';
 import {
   watchGame, applyAction, STEP, STEP_ROLE, STEP_LABEL,
-  roundInfo, addRonda, setGameColumnWip, setGameRole,
+  roundInfo, addRonda, setGameColumnWip, setGameRole, currentDev,
 } from '../lib/game.js';
 import * as R from '../lib/rules.js';
 import { toast, promptDialog, confirmDialog } from '../lib/ui.js';
@@ -19,16 +19,20 @@ export class GameBoard extends LitElement {
     me: { attribute: false },
     board: { state: true },
     game: { state: true },
+    users: { state: true },
     selectedCardId: { state: true },
     devAction: { state: true },
+    pairPartner: { state: true },
   };
 
   constructor() {
     super();
     this.board = null;
     this.game = null;
+    this.users = [];
     this.selectedCardId = null;
     this.devAction = 'advance';
+    this.pairPartner = null;
   }
   createRenderRoot() { return this; }
 
@@ -36,8 +40,23 @@ export class GameBoard extends LitElement {
     super.connectedCallback();
     this._wb = watchBoard(this.boardId, (b) => { this.board = b; });
     this._wg = watchGame(this.boardId, (g) => { this.game = g; });
+    this._wu = watchUsers((l) => { this.users = l; });
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._wb?.(); this._wg?.(); }
+  disconnectedCallback() { super.disconnectedCallback(); this._wb?.(); this._wg?.(); this._wu?.(); }
+
+  nameOf(uid) {
+    const u = this.users.find((x) => x.id === uid);
+    return u?.name || u?.email || (uid ? `…${String(uid).slice(-4)}` : '—');
+  }
+  get currentDevUid() { return currentDev(this.game); }
+  /** ¿Me toca accionar AHORA? (en Devs, solo el Dev de turno; admin siempre). */
+  get actorIsMe() {
+    const g = this.game;
+    if (!g || g.status !== 'playing') return false;
+    if (this.isAdmin) return true;
+    if (g.step === STEP.DEVS) return this.myGameRole === 'DEV' && this.me?.uid === this.currentDevUid;
+    return this.myGameRole === this.activeRole;
+  }
 
   get myGameRole() { return this.game?.roleAssignments?.[this.me?.uid] ?? this.board?.roleAssignments?.[this.me?.uid] ?? null; }
   get roleAssignments() { return this.game?.roleAssignments || this.board?.roleAssignments || {}; }
@@ -62,7 +81,7 @@ export class GameBoard extends LitElement {
       ${this.renderTopBar()}
       ${this.renderColumns()}
       ${this.game.status === 'finished' ? this.renderFinished() : this.renderControls()}
-      ${this.game.status === 'playing' && this.canAct ? this.renderPreview() : ''}
+      ${this.game.status === 'playing' && this.actorIsMe ? this.renderPreview() : ''}
       ${this.renderLog()}
       ${this.styles()}
     `;
@@ -92,7 +111,7 @@ export class GameBoard extends LitElement {
   renderTopBar() {
     const g = this.game;
     const role = this.activeRole;
-    const youAct = this.canAct && g.status === 'playing';
+    const youAct = this.actorIsMe;
     const ri = roundInfo(g);
     return html`
       <div class="topbar card">
@@ -270,10 +289,11 @@ export class GameBoard extends LitElement {
   }
 
   renderControls() {
-    if (!this.canAct) {
-      return html`<div class="controls card muted">Esperando a que <strong>${this.activeRole}</strong> complete el ${STEP_LABEL[this.game.step]}.</div>`;
-    }
     const g = this.game;
+    if (g.step === STEP.DEVS) return this.ctrlDevs(); // gestiona su propio roster/turnos
+    if (!this.canAct) {
+      return html`<div class="controls card muted">Esperando a que <strong>${this.activeRole}</strong> complete el ${STEP_LABEL[g.step]}.</div>`;
+    }
     switch (g.step) {
       case STEP.PM_ADD: return this.ctrlPmAdd();
       case STEP.PM_PULL: return this.ctrlPmPull();
@@ -298,35 +318,72 @@ export class GameBoard extends LitElement {
     </div>`;
   }
 
+  renderDevRoster() {
+    const g = this.game;
+    const order = g.devOrder || [];
+    const acted = g.devActed || {};
+    const cur = this.currentDevUid;
+    return html`<div class="dev-roster">
+      ${order.map((uid) => {
+        const done = !!acted[uid];
+        const isCur = uid === cur;
+        const isMe = uid === this.me?.uid;
+        return html`<span class="dev-chip ${done ? 'done' : ''} ${isCur ? 'cur' : ''}">
+          ${done ? '✓' : isCur ? '➡️' : '⏳'} ${this.nameOf(uid)}${isMe ? ' (tú)' : ''}
+        </span>`;
+      })}
+    </div>`;
+  }
+
   ctrlDevs() {
-    const sel = this.selectedCardId ? this.game.cards[this.selectedCardId] : null;
+    const g = this.game;
     const a = this.anchors();
-    const inAdvance = sel && R.advanceSources(this.game).includes(sel.col);
+    const order = g.devOrder || [];
+    const acted = g.devActed || {};
+    const cur = this.currentDevUid;
+    const canFinish = this.isAdmin || this.myGameRole === 'PM';
+
+    if (!this.actorIsMe) {
+      return html`<div class="controls card stack">
+        <p>Paso de los Devs · le toca a <strong>${cur ? this.nameOf(cur) : '—'}</strong>.</p>
+        ${this.renderDevRoster()}
+        ${canFinish ? html`<button @click=${() => this.act('dev-finish')}>✔ Forzar cierre → QA</button>` : ''}
+      </div>`;
+    }
+
+    const sel = this.selectedCardId ? g.cards[this.selectedCardId] : null;
+    const inAdvance = sel && R.advanceSources(g).includes(sel.col);
     const inReview = sel && sel.col === a.id.review;
     const action = this.devAction;
     const needTwo = action === 'pair';
-    const validForAction =
-      (action === 'advance' && inAdvance) ||
-      (action === 'pair' && inAdvance) ||
-      (action === 'review' && inReview);
+    const pendingPartners = order.filter((u) => !acted[u] && u !== cur);
+    const validForAction = ((action === 'advance' || action === 'pair') && inAdvance) || (action === 'review' && inReview);
+    const pairOk = action !== 'pair' || (this.pairPartner && pendingPartners.includes(this.pairPartner));
     return html`<div class="controls card stack">
-      <p>Cada Dev elige una opción y tira. Selecciona una historia y la acción:</p>
+      <p><strong>Te toca${cur && cur !== this.me?.uid ? ` (accionas por ${this.nameOf(cur)})` : ''}.</strong> Elige una opción y tira:</p>
+      ${this.renderDevRoster()}
       <div class="row">
         ${this.devOpt('advance', 'Avanzar (1 dado, 3+)')}
         ${this.devOpt('review', 'Revisar PR (1 dado, 3+)')}
-        ${this.devOpt('pair', 'Pair (2 dados, suma 5+)')}
+        ${this.devOpt('pair', 'Pair (2 dados, 5+)')}
       </div>
+      ${action === 'pair' ? html`
+        <div class="row" style="gap:8px">
+          <label style="margin:0">Compañero:</label>
+          <select @change=${(e) => { this.pairPartner = e.target.value || null; }}>
+            <option value="" ?selected=${!this.pairPartner}>— elige Dev —</option>
+            ${pendingPartners.map((u) => html`<option value=${u} ?selected=${this.pairPartner === u}>${this.nameOf(u)}</option>`)}
+          </select>
+          ${pendingPartners.length === 0 ? html`<span class="muted">No hay otro Dev pendiente para pair.</span>` : ''}
+        </div>` : ''}
       <p class="muted" style="margin:0">
-        ${sel ? html`Seleccionada: <strong>#${sel.number}</strong>` : 'Ninguna historia seleccionada.'}
-        ${action === 'advance' ? ' · Avanza Análisis→Desarrollo o Desarrollo→Revisión PR.' : ''}
-        ${action === 'review' ? ' · Mueve Revisión PR→QA.' : ''}
-        ${action === 'pair' ? ' · Dos devs avanzan una historia.' : ''}
-        ${sel && !validForAction ? html`<span style="color:var(--c-warning)"> · esa historia no es válida para esta acción.</span>` : ''}
+        ${sel ? html`Seleccionada: <strong>#${sel.number}</strong>` : 'Selecciona una historia.'}
+        ${sel && !validForAction ? html`<span style="color:var(--c-warning)"> · esa historia no vale para esta acción.</span>` : ''}
       </p>
       <div class="row" style="gap:16px">
-        <kbg-dice count=${needTwo ? 2 : 1} label="Tirar" .disabled=${!validForAction}
+        <kbg-dice count=${needTwo ? 2 : 1} label="Tirar" .disabled=${!validForAction || !pairOk}
           @roll=${(e) => this.devRoll(e.detail.values)}></kbg-dice>
-        <button @click=${() => this.act('dev-finish')}>✔ Terminar paso Devs → QA</button>
+        ${canFinish ? html`<button @click=${() => this.act('dev-finish')}>✔ Forzar cierre → QA</button>` : ''}
       </div>
     </div>`;
   }
@@ -338,8 +395,9 @@ export class GameBoard extends LitElement {
     if (!cardId) return;
     if (this.devAction === 'advance') this.act('dev-advance', { cardId, dice: values[0] });
     else if (this.devAction === 'review') this.act('dev-review', { cardId, dice: values[0] });
-    else if (this.devAction === 'pair') this.act('dev-pair', { cardId, dice: values });
+    else if (this.devAction === 'pair') this.act('dev-pair', { cardId, dice: values, partner: this.pairPartner });
     this.selectedCardId = null;
+    this.pairPartner = null;
   }
 
   ctrlQa() {
@@ -408,6 +466,10 @@ export class GameBoard extends LitElement {
       kbg-game .rolepick select { width: auto; padding: 2px 6px; }
       kbg-game .preview { margin-top: 10px; padding: 10px 14px; border-radius: 8px; background: #14304a; border-left: 4px solid var(--c-primary); font-size: .95rem; }
       kbg-game .preview.blocked { background: #3a1414; border-left-color: var(--c-danger); }
+      kbg-game .dev-roster { display: flex; flex-wrap: wrap; gap: 6px; }
+      kbg-game .dev-chip { font-size: .85rem; padding: 3px 10px; border-radius: 999px; background: var(--c-surface-2); border: 1px solid var(--c-border); color: var(--c-text-soft); }
+      kbg-game .dev-chip.done { opacity: .6; text-decoration: line-through; }
+      kbg-game .dev-chip.cur { background: #173c3f; color: #7fe3ec; border-color: #4dd0e1; font-weight: 700; }
       kbg-game .col-body { padding: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start; }
       kbg-game .postit { width: 56px; height: 56px; background: var(--c-postit); color: var(--c-postit-text); border-radius: 6px; box-shadow: var(--shadow-1); display: flex; align-items: center; justify-content: center; position: relative; font-weight: 800; transform: rotate(-1.5deg); }
       kbg-game .postit:nth-child(even) { transform: rotate(1.5deg); }

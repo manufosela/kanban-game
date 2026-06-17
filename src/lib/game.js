@@ -201,6 +201,33 @@ function endTurn(s) {
   }
 }
 
+// --- Paso 3 (Devs) por turnos: una acción por Dev ---
+function devUids(s) {
+  return Object.entries(s.roleAssignments || {})
+    .filter(([, r]) => r === 'DEV')
+    .map(([uid]) => uid)
+    .sort();
+}
+function startDevsStep(s) {
+  const devs = devUids(s);
+  s.devOrder = devs;
+  s.devActed = {};
+  if (devs.length === 0) { s.step = STEP.QA; s.qaRolls = 0; pushLog(s, 'No hay Devs asignados; pasa a QA.'); }
+  else s.step = STEP.DEVS;
+}
+/** Dev al que le toca actuar (el primero del orden que no ha actuado), o null. */
+export function currentDev(s) {
+  const order = s?.devOrder || [];
+  const acted = s?.devActed || {};
+  return order.find((u) => !acted[u]) || null;
+}
+function markDevActed(s, uids) {
+  s.devActed = { ...(s.devActed || {}) };
+  for (const u of uids) if (u) s.devActed[u] = true;
+  const all = (s.devOrder || []).every((u) => s.devActed[u]);
+  if (all) { s.step = STEP.QA; s.qaRolls = 0; pushLog(s, 'Todos los Devs han actuado. Turno de QA.'); }
+}
+
 const HANDLERS = {
   // Paso 1
   'pm-add': (s) => {
@@ -220,65 +247,74 @@ const HANDLERS = {
     const { state, moved } = R.pmPullToAnalysis(s, dice);
     s.cards = state.cards;
     setDice(s, 'pm-pull', dice, a.by);
-    s.step = STEP.DEVS;
     pushLog(s, `El PM saca ${dice} y mueve ${moved} historia(s) a Análisis.`);
+    startDevsStep(s);
     return {};
   },
 
-  // Paso 3 — Dev avanzar
+  // Paso 3 — Dev avanzar (el Dev de turno)
   'dev-advance': (s, a) => {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
+    const cur = currentDev(s);
+    if (!cur) return { msg: 'Todos los Devs han actuado.' };
     const dice = a.dice;
-    setDice(s, 'dev-advance', dice, a.by);
-    if (!R.diceAdvances(dice)) { pushLog(s, `Dev saca ${dice}: la historia no avanza.`); return {}; }
-    const out = R.devAdvance(s, a.cardId);
-    if (out.ok) {
-      s.cards = out.state.cards;
-      pushLog(s, `Dev saca ${dice}: la historia #${num(s, a.cardId)} avanza.`);
-    } else {
-      pushLog(s, `Dev saca ${dice} pero no puede avanzar (${reason(out.reason)}).`);
+    setDice(s, 'dev-advance', dice, cur);
+    if (!R.diceAdvances(dice)) pushLog(s, `Dev saca ${dice}: la historia no avanza.`);
+    else {
+      const out = R.devAdvance(s, a.cardId);
+      if (out.ok) { s.cards = out.state.cards; pushLog(s, `Dev saca ${dice}: la historia #${num(s, a.cardId)} avanza.`); }
+      else pushLog(s, `Dev saca ${dice} pero no puede avanzar (${reason(out.reason)}).`);
     }
+    markDevActed(s, [cur]);
     return {};
   },
 
-  // Paso 3 — Dev revisar PR
+  // Paso 3 — Dev revisar PR (el Dev de turno)
   'dev-review': (s, a) => {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
+    const cur = currentDev(s);
+    if (!cur) return { msg: 'Todos los Devs han actuado.' };
     const dice = a.dice;
-    setDice(s, 'dev-review', dice, a.by);
-    if (!R.diceAdvances(dice)) { pushLog(s, `Revisión de PR: saca ${dice}, no se completa.`); return {}; }
-    const out = R.devReview(s, a.cardId);
-    if (out.ok) {
-      s.cards = out.state.cards;
-      pushLog(s, `Revisión de PR (${dice}): la historia #${num(s, a.cardId)} pasa a QA.`);
-    } else {
-      pushLog(s, `Revisión de PR (${dice}) pero no puede mover (${reason(out.reason)}).`);
+    setDice(s, 'dev-review', dice, cur);
+    if (!R.diceAdvances(dice)) pushLog(s, `Revisión de PR: saca ${dice}, no se completa.`);
+    else {
+      const out = R.devReview(s, a.cardId);
+      if (out.ok) { s.cards = out.state.cards; pushLog(s, `Revisión de PR (${dice}): la historia #${num(s, a.cardId)} pasa a QA.`); }
+      else pushLog(s, `Revisión de PR (${dice}) pero no puede mover (${reason(out.reason)}).`);
     }
+    markDevActed(s, [cur]);
     return {};
   },
 
-  // Paso 3 — Pair programming (dos dados)
+  // Paso 3 — Pair programming: el Dev de turno + un compañero pendiente (consume a ambos)
   'dev-pair': (s, a) => {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
-    const [d1, d2] = a.dice;
-    setDice(s, 'dev-pair', [d1, d2], a.by);
-    if (!R.pairAdvances(d1, d2)) { pushLog(s, `Pair: ${d1}+${d2}=${d1 + d2}, no avanza.`); return {}; }
-    const out = R.devAdvance(s, a.cardId);
-    if (out.ok) {
-      s.cards = out.state.cards;
-      pushLog(s, `Pair (${d1}+${d2}=${d1 + d2}): la historia #${num(s, a.cardId)} avanza.`);
-    } else {
-      pushLog(s, `Pair (${d1}+${d2}) pero no puede avanzar (${reason(out.reason)}).`);
+    const cur = currentDev(s);
+    if (!cur) return { msg: 'Todos los Devs han actuado.' };
+    const partner = a.partner;
+    const order = s.devOrder || [];
+    const acted = s.devActed || {};
+    if (!partner || !order.includes(partner) || acted[partner] || partner === cur) {
+      return { msg: 'Elige un compañero Dev pendiente para el pair.' };
     }
+    const [d1, d2] = a.dice;
+    setDice(s, 'dev-pair', [d1, d2], cur);
+    if (!R.pairAdvances(d1, d2)) pushLog(s, `Pair: ${d1}+${d2}=${d1 + d2}, no avanza.`);
+    else {
+      const out = R.devAdvance(s, a.cardId);
+      if (out.ok) { s.cards = out.state.cards; pushLog(s, `Pair (${d1}+${d2}=${d1 + d2}): la historia #${num(s, a.cardId)} avanza.`); }
+      else pushLog(s, `Pair (${d1}+${d2}) pero no puede avanzar (${reason(out.reason)}).`);
+    }
+    markDevActed(s, [cur, partner]);
     return {};
   },
 
-  // Paso 3 -> 4
+  // Paso 3 -> 4 (cierre forzado por PM/admin)
   'dev-finish': (s) => {
     if (s.step !== STEP.DEVS) return {};
     s.step = STEP.QA;
     s.qaRolls = 0;
-    pushLog(s, 'Los Devs terminan. Turno de QA.');
+    pushLog(s, 'Se cierra el paso de Devs. Turno de QA.');
     return {};
   },
 
