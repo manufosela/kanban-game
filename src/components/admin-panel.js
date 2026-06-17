@@ -260,9 +260,11 @@ export class AdminPanel extends LitElement {
     toast(`${p.name} fuera del equipo`, 'info');
   }
   openAddPeople(t) {
-    const inTeam = new Set(Object.keys(t.members || {}));
-    const realCandidates = this.users.filter((u) => !inTeam.has(u.id));
-    const invCandidates = this.invited.filter((iv) => iv.teamId !== t.id);
+    // Solo personas que no están en NINGÚN equipo.
+    const inAnyTeam = new Set();
+    this.teams.forEach((tm) => Object.keys(tm.members || {}).forEach((uid) => inAnyTeam.add(uid)));
+    const realCandidates = this.users.filter((u) => !inAnyTeam.has(u.id));
+    const invCandidates = this.invited.filter((iv) => !iv.teamId);
     const wrap = document.createElement('div');
     if (realCandidates.length === 0 && invCandidates.length === 0) {
       wrap.innerHTML = '<p class="muted">No hay más personas disponibles. Pre-registra correos en la pestaña «Personas».</p>';
@@ -364,7 +366,12 @@ export class AdminPanel extends LitElement {
   }
   async renameTeam(t) {
     const name = await promptDialog('Nuevo nombre del equipo', { title: 'Renombrar equipo', value: t.name });
-    if (name) { await renameTeam(t.id, name); toast('Equipo renombrado', 'success'); }
+    if (!name) return;
+    await renameTeam(t.id, name);
+    // Renombrar también sus tableros (el renombrado del equipo cascada a los tableros).
+    if (t.boardNoWip) await renameBoard(t.boardNoWip, `${name} · sin WIP`);
+    if (t.boardWip) await renameBoard(t.boardWip, `${name} · con WIP`);
+    toast('Equipo y tableros renombrados', 'success');
   }
   async removeTeam(t) {
     if (await confirmDialog(`¿Eliminar el equipo "${t.name}" y sus 2 tableros (con partidas y resultados)?`, { title: 'Eliminar equipo', danger: true })) {
