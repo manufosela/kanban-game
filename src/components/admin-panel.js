@@ -761,25 +761,68 @@ export class AdminPanel extends LitElement {
   }
   renderCoFacilitators() {
     const facSet = new Set(this.facilitators);
-    // Candidatos: personas reales de ESTA partida (miembros de sus equipos).
-    const memberIds = this.partidaUserIds();
-    const cands = this.users.filter((u) => memberIds.has(u.id));
+    // Co-facilitadores actuales (reales con el flag de esta partida; los admin facilitan siempre, no se listan aquí).
+    const current = this.users.filter((u) => facSet.has(u.id) && u.role !== 'admin');
     return html`
       <div class="card stack" style="margin-top:12px">
-        <h3 style="margin:0">Co-facilitadores de esta partida</h3>
-        <p class="muted" style="margin:0">Pueden moderar los tableros de esta partida (forzar pasos, WIP, rondas, roles) y ven solo esta partida, no las demás. Quítalos al terminar la sesión.</p>
-        ${cands.length === 0 ? html`<p class="muted" style="margin:0">No hay personas reales en esta partida todavía. Asigna a alguien a un equipo para poder nombrarla co-facilitadora.</p>` : html`
+        <div class="flex-between" style="flex-wrap:wrap; gap:6px">
+          <h3 style="margin:0">Co-facilitadores de esta partida</h3>
+          <button class="btn-sm btn-primary" @click=${() => this.openAddFacilitator()}>➕ Añadir co-facilitador</button>
+        </div>
+        <p class="muted" style="margin:0">Pueden moderar los tableros de esta partida (forzar pasos, WIP, rondas, roles) y ven solo esta partida, no las demás. Quítalos al terminar la sesión. Solo pueden serlo personas que ya hayan iniciado sesión al menos una vez.</p>
+        ${current.length === 0 ? html`<p class="muted" style="margin:0">Aún no hay co-facilitadores. Pulsa «Añadir co-facilitador».</p>` : html`
         <table class="t">
-          <thead><tr><th>Persona</th><th>Co-facilitador</th></tr></thead>
+          <thead><tr><th>Persona</th><th></th></tr></thead>
           <tbody>
-            ${cands.map((u) => html`
+            ${current.map((u) => html`
               <tr>
-                <td>${u.name || u.email} ${u.role === 'admin' ? html`<span class="tag admin">admin</span>` : ''}</td>
-                <td><input type="checkbox" ?checked=${facSet.has(u.id) || u.role === 'admin'} ?disabled=${u.role === 'admin'} @change=${(e) => this.toggleFacilitator(u, e.target.checked)}></td>
+                <td>${u.name || u.email} ${this.teamNameOf(u.id) ? html`<span class="tag">${this.teamNameOf(u.id)}</span>` : html`<span class="muted" style="font-size:.78rem">no juega</span>`}</td>
+                <td><button class="btn-sm btn-danger" @click=${() => this.toggleFacilitator(u, false)}>Quitar</button></td>
               </tr>`)}
           </tbody>
         </table>`}
       </div>`;
+  }
+  /** Modal para nombrar co-facilitadores: personas logadas libres (sin equipo) o ya de esta partida. */
+  openAddFacilitator() {
+    const facSet = new Set(this.facilitators);
+    const assigned = this.assignedAnywhere();
+    const memberIds = this.partidaUserIds();
+    const cands = this.users
+      .filter((u) => u.role !== 'admin' && !facSet.has(u.id) && (memberIds.has(u.id) || !assigned.has(u.id)))
+      .map((u) => ({
+        id: u.id,
+        label: u.name || u.email,
+        sub: (u.name && u.email) ? u.email : '',
+        situ: memberIds.has(u.id) ? 'juega en esta partida' : 'sin rol asignado',
+        free: !memberIds.has(u.id),
+      }))
+      .sort((a, b) => (Number(b.free) - Number(a.free)) || a.label.localeCompare(b.label));
+    const wrap = document.createElement('div');
+    if (cands.length === 0) {
+      wrap.innerHTML = '<p class="muted">No hay personas disponibles. Un co-facilitador debe haber iniciado sesión al menos una vez (los pre-registrados por email aún no valen). Si la persona ya entró, comprueba que no esté asignada a un equipo de otra partida.</p>';
+    }
+    for (const c of cands) {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:5px 0;cursor:pointer';
+      const chip = c.free
+        ? '<span style="background:#26324a;color:#bcd3ff;border-radius:999px;padding:1px 8px;font-size:.7rem">sin rol asignado</span>'
+        : '<span style="background:#1f3a2a;color:#9ff0c0;border-radius:999px;padding:1px 8px;font-size:.7rem">juega aquí</span>';
+      row.innerHTML = `<input type="checkbox" data-id="${c.id}"> ${chip} <span>${c.label}${c.sub ? ` <span style="opacity:.6">${c.sub}</span>` : ''}</span>`;
+      wrap.appendChild(row);
+    }
+    modal(wrap, {
+      title: 'Añadir co-facilitadores',
+      actions: [
+        { label: 'Cancelar', onClick: (c) => c() },
+        { label: 'Añadir seleccionadas', variant: 'primary', onClick: async (c) => {
+          const checks = [...wrap.querySelectorAll('input[type=checkbox]:checked')];
+          for (const ch of checks) await setPartidaFacilitator(this.currentPartidaId, ch.dataset.id, true);
+          c();
+          if (checks.length) toast(`${checks.length} co-facilitador(es) añadido(s)`, 'success');
+        } },
+      ],
+    });
   }
   async toggleFacilitator(u, on) {
     await setPartidaFacilitator(this.currentPartidaId, u.id, on);
