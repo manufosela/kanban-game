@@ -387,3 +387,8 @@ export async function getBoard(boardId) {
   const s = await get(ref(db, `boards/${boardId}`));
   return s.exists() ? { id: boardId, ...s.val() } : null;
 }
+
+export async function getTeam(teamId) {
+  const s = await get(ref(db, `teams/${teamId}`));
+  return s.exists() ? { id: teamId, ...s.val() } : null;
+}
