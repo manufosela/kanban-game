@@ -343,6 +343,13 @@ export class AdminPanel extends LitElement {
   suggestTeamCount() {
     return Math.max(1, this.unassignedPeople().filter((p) => p.role === 'PM').length);
   }
+  /** Cuenta de personas de un equipo: reales (logadas) + pendientes (pre-registradas). */
+  teamCounts(teamId) {
+    const t = this.teams.find((x) => x.id === teamId);
+    const real = t?.members ? Object.keys(t.members).length : 0;
+    const pend = this.invited.filter((iv) => iv.teamId === teamId).length;
+    return { real, pend, total: real + pend };
+  }
   async generateTeams() {
     const nTeams = Math.max(1, Number(this.querySelector('#nTeams')?.value) || 1);
     const people = this.unassignedPeople();
@@ -491,10 +498,8 @@ export class AdminPanel extends LitElement {
     const rondas = this.session?.rondas ?? 3;
     const ciclos = this.session?.ciclos ?? 5;
     const teamless = modeBoards.filter((b) => !this.teams.find((t) => t.id === b.teamId));
-    const emptyTeams = modeBoards.filter((b) => {
-      const t = this.teams.find((x) => x.id === b.teamId);
-      return t && (!t.members || Object.keys(t.members).length === 0);
-    });
+    const emptyTeams = modeBoards.filter((b) => this.teamCounts(b.teamId).total === 0);
+    const anyPending = modeBoards.some((b) => this.teamCounts(b.teamId).pend > 0);
     const blocked = teamless.length > 0 || emptyTeams.length > 0;
     return html`
       <div class="card stack">
@@ -519,10 +524,13 @@ export class AdminPanel extends LitElement {
             <tbody>
               ${modeBoards.map((b) => {
                 const team = this.teams.find((t) => t.id === b.teamId);
-                const n = team?.members ? Object.keys(team.members).length : 0;
+                const c = this.teamCounts(b.teamId);
                 return html`<tr>
-                  <td>${team?.name || '—'} ${n === 0 ? html`<span class="tag bad">sin personas</span>` : ''}</td>
-                  <td>${n}</td>
+                  <td>${team?.name || '—'}
+                    ${c.total === 0 ? html`<span class="tag bad">sin personas</span>` : ''}
+                    ${c.total > 0 && c.real === 0 ? html`<span class="tag" style="background:#3a3416;color:#ffe08a">todos pendientes</span>` : ''}
+                  </td>
+                  <td>${c.total}${c.pend ? html` <span class="muted">(${c.pend} pend.)</span>` : ''}</td>
                   <td>${b.status || 'setup'}</td>
                   <td><a class="btn btn-sm" href="/board?id=${b.id}">▶ Abrir</a> <a class="btn btn-sm" href="/results?id=${b.id}">📊</a></td>
                 </tr>`;
@@ -530,7 +538,8 @@ export class AdminPanel extends LitElement {
             </tbody>
           </table>`}
 
-        ${blocked ? html`<p class="bad" style="margin:0">⚠ No se puede iniciar: hay equipos sin personas o tableros sin equipo. Corrígelo en «Equipos y tableros».</p>` : ''}
+        ${blocked ? html`<p class="bad" style="margin:0">⚠ No se puede iniciar: hay equipos sin nadie asignado o tableros sin equipo. Corrígelo en «Equipos y tableros».</p>` : ''}
+        ${!blocked && anyPending ? html`<p class="muted" style="margin:0">ℹ️ Hay personas <strong>pendientes</strong> (pre-registradas) que aún no han iniciado sesión: no podrán jugar su rol hasta que entren con su correo.</p>` : ''}
         <div class="row" style="gap:10px; align-items:center">
           <button class="btn-primary btn-lg" ?disabled=${modeBoards.length === 0 || anyPlaying || blocked} @click=${() => this.startPartida()}>
             ▶ Iniciar partida ${mode === 'wip' ? 'con WIP' : 'sin WIP'} (${rondas}×${ciclos}) en todos
@@ -558,9 +567,8 @@ export class AdminPanel extends LitElement {
     const problems = [];
     for (const b of modeBoards) {
       const team = this.teams.find((t) => t.id === b.teamId);
-      const n = team?.members ? Object.keys(team.members).length : 0;
       if (!team) problems.push(`"${b.name}" sin equipo`);
-      else if (n === 0) problems.push(`Equipo "${team.name}" sin personas`);
+      else if (this.teamCounts(b.teamId).total === 0) problems.push(`Equipo "${team.name}" sin nadie asignado`);
     }
     if (problems.length) return toast('No se puede iniciar: ' + problems.join('; '), 'error', 6000);
     if (modeBoards.some((b) => b.status === 'playing')) return toast('Hay partidas en curso.', 'warning');
