@@ -24,6 +24,8 @@ import Layout from '../layouts/Layout.astro';
     mount.hidden = false;
     const el = new AdminPanel();
     el.me = { uid: user.uid, profile, isAdmin, facilitatorOnly: !isAdmin && isFacilitator };
+    const partidaParam = new URLSearchParams(location.search).get('partida');
+    if (partidaParam) el.initialPartidaId = partidaParam;
     mount.appendChild(el);
   </script>
 </Layout>

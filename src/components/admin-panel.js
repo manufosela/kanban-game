@@ -32,6 +32,7 @@ export class AdminPanel extends LitElement {
     expanded: { state: true },
     selectedBoard: { state: true },
     me: { attribute: false },
+    initialPartidaId: { attribute: false },
   };
 
   constructor() {
@@ -60,7 +61,7 @@ export class AdminPanel extends LitElement {
     this._t = watchTeams((l) => { this.teams = l; });
     this._i = watchInvited((l) => { this.invited = l; });
     this._bots = watchBots((l) => { this.bots = l; });
-    this._p = watchPartidas((l) => { this.partidas = l; });
+    this._p = watchPartidas((l) => { this.partidas = l; this.maybeRestorePartida(); });
     this._b = watchBoards((l) => {
       this.boards = l;
       if (this.selectedBoard) this.selectedBoard = l.find((b) => b.id === this.selectedBoard.id) || null;
@@ -68,6 +69,16 @@ export class AdminPanel extends LitElement {
     // Un co-facilitador entra directo a su partida (no ve el listado global).
     if (this.me?.facilitatorOnly) {
       findUserPartida(this.me.uid).then((pid) => { if (pid) this.enterPartida(pid); });
+    }
+  }
+
+  /** Restaura la partida recordada (URL ?partida o localStorage) si sigue existiendo. */
+  maybeRestorePartida() {
+    if (this.currentPartidaId || this.me?.facilitatorOnly || this._restored) return;
+    const want = this.initialPartidaId || localStorage.getItem('kbg.partida');
+    if (want && this.partidas.some((p) => p.id === want)) {
+      this._restored = true;
+      this.enterPartida(want);
     }
   }
   disconnectedCallback() {
@@ -81,6 +92,7 @@ export class AdminPanel extends LitElement {
     this.currentPartidaId = pid;
     this.tab = this.me?.facilitatorOnly ? 'facilitator' : 'people';
     this.selectedBoard = null;
+    try { localStorage.setItem('kbg.partida', pid); } catch { /* ignore */ }
     this._ps?.(); this._pf?.();
     this._ps = watchPartidaSession(pid, (s) => { this.session = s; });
     this._pf = watchPartidaFacilitators(pid, (l) => { this.facilitators = l; });
@@ -90,6 +102,7 @@ export class AdminPanel extends LitElement {
     this._ps = null; this._pf = null;
     this.currentPartidaId = null;
     this.selectedBoard = null;
+    try { localStorage.removeItem('kbg.partida'); } catch { /* ignore */ }
   }
   currentPartida() { return this.partidas.find((p) => p.id === this.currentPartidaId) || null; }
 
@@ -170,13 +183,15 @@ export class AdminPanel extends LitElement {
                 const tms = this.teams.filter((t) => t.partidaId === p.id);
                 const bds = this.boards.filter((b) => b.partidaId === p.id);
                 const realIds = new Set();
-                tms.forEach((t) => Object.keys(t.members || {}).forEach((u) => { if (!isBotId(u)) realIds.add(u); }));
+                let bots = 0;
+                tms.forEach((t) => Object.keys(t.members || {}).forEach((u) => { if (isBotId(u)) bots += 1; else realIds.add(u); }));
                 const pend = this.invited.filter((iv) => iv.partidaId === p.id).length;
+                const total = realIds.size + bots;
                 return html`<tr>
                   <td><strong>${p.name}</strong> ${p.isDemo ? html`<span class="tag" style="background:#1f3a2a;color:#9ff0c0">demo</span>` : ''}</td>
                   <td>${tms.length}</td>
                   <td>${bds.length}</td>
-                  <td>${realIds.size}${pend ? html` <span class="muted">(+${pend} pend.)</span>` : ''}</td>
+                  <td>${total}${bots ? html` <span class="muted">(${bots} bots)</span>` : ''}${pend ? html` <span class="muted">(+${pend} pend.)</span>` : ''}</td>
                   <td class="row" style="gap:6px">
                     <button class="btn-sm btn-primary" @click=${() => this.enterPartida(p.id)}>Entrar</button>
                     <button class="btn-sm" @click=${() => this.renamePartidaPrompt(p)}>Renombrar</button>
@@ -855,7 +870,9 @@ export class AdminPanel extends LitElement {
     const ok = await confirmDialog(`¿Iniciar la partida ${mode === 'wip' ? 'con WIP' : 'sin WIP'} (${rondas}×${ciclos} = ${rondas * ciclos} ciclos) en ${modeBoards.length} tablero(s)?`, { title: 'Iniciar partida' });
     if (!ok) return;
     await startPartidaForBoards(modeBoards, mode, { rondas, ciclos, timeLimitMinutes: this.session?.timeLimitMinutes ?? null, pauseBetweenRounds: this.session?.pauseBetweenRounds || false });
-    toast(`Partida iniciada en ${modeBoards.length} tablero(s)`, 'success');
+    // Con un único tablero (típico en demos) abre directamente; con varios, deja la tabla con «Abrir».
+    if (modeBoards.length === 1) { location.href = `/board?id=${modeBoards[0].id}`; return; }
+    toast(`Partida iniciada en ${modeBoards.length} tablero(s). Pulsa «Abrir» en cada uno para verlos.`, 'success', 5000);
   }
 
   tableStyles() {

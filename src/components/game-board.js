@@ -1,9 +1,12 @@
 import { LitElement, html } from 'lit';
-import { watchBoard, watchUsers, watchFacilitators, watchBots, isBotId } from '../lib/db.js';
+import {
+  watchBoard, watchUsers, watchFacilitators, watchBots, isBotId,
+  getBoard, getTeam, getPartida,
+} from '../lib/db.js';
 import {
   watchGame, applyAction, STEP, STEP_ROLE, STEP_LABEL,
   roundInfo, addRonda, setGameColumnWip, setGameRole, currentDev, botAction,
-  pauseGame, resumeGame,
+  pauseGame, resumeGame, startGame,
 } from '../lib/game.js';
 import * as R from '../lib/rules.js';
 import { toast, promptDialog, confirmDialog } from '../lib/ui.js';
@@ -24,6 +27,7 @@ export class GameBoard extends LitElement {
     facilitators: { state: true },
     bots: { state: true },
     autoBots: { state: true },
+    botDelayMs: { state: true },
     selectedCardId: { state: true },
     devAction: { state: true },
     pairPartner: { state: true },
@@ -37,6 +41,7 @@ export class GameBoard extends LitElement {
     this.facilitators = [];
     this.bots = [];
     this.autoBots = true;
+    this.botDelayMs = Number(localStorage.getItem('kbg.botDelayMs')) || 1500;
     this.selectedCardId = null;
     this.devAction = 'advance';
     this.pairPartner = null;
@@ -92,7 +97,11 @@ export class GameBoard extends LitElement {
       if (!g2 || g2.status !== 'playing' || !this.currentBotActor()) return;
       const action = botAction(g2);
       if (action) this.act(action.type, action);
-    }, 850);
+    }, this.botDelayMs);
+  }
+  setBotDelay(ms) {
+    this.botDelayMs = ms;
+    localStorage.setItem('kbg.botDelayMs', String(ms));
   }
   get currentDevUid() { return currentDev(this.game); }
   /** ¿Me toca accionar AHORA? (en Devs, solo el Dev de turno; admin siempre). */
@@ -111,6 +120,8 @@ export class GameBoard extends LitElement {
   get isMod() { return this.me?.isAdmin || (this.me?.uid && this.facilitators?.includes(this.me.uid)); }
   get activeRole() { return this.game ? STEP_ROLE[this.game.step] : null; }
   get canAct() { return this.isMod || (this.myGameRole && this.myGameRole === this.activeRole); }
+  /** Enlace a Administración conservando la partida del tablero. */
+  adminHref() { return this.board?.partidaId ? `/admin?partida=${this.board.partidaId}` : '/admin'; }
 
   cols() { return R.orderedColumns(this.game.columns); }
   anchors() { return R.anchors(this.cols()); }
@@ -145,9 +156,9 @@ export class GameBoard extends LitElement {
         ${modeTxt ? html`<div><span class="tag ${this.board.mode === 'wip' ? 'role-QA' : ''}">${modeTxt}</span></div>` : ''}
         <p class="muted">La ronda todavía no ha comenzado.</p>
         ${this.isMod
-          ? html`<p>Inicia la ronda desde <a href="/admin">Administración → Facilitador</a>.</p>`
+          ? html`<p>Inicia la ronda desde <a href=${this.adminHref()}>Administración → Facilitador</a>.</p>`
           : html`<p>Pide al facilitador que inicie la ronda.</p>`}
-        <a href="/dashboard">← Volver</a>
+        <a href=${this.isMod ? this.adminHref() : '/dashboard'}>← Volver</a>
       </div>
       ${this.styles()}
     `;
@@ -194,6 +205,12 @@ export class GameBoard extends LitElement {
               : html`Esperando a <span class="tag role-${role}">${role}</span>`}
           </div>
           ${this.isMod ? html`<label class="rolepick" style="margin-top:6px" title="Si está activado y le toca a un bot, juega solo desde aquí"><input type="checkbox" ?checked=${this.autoBots} @change=${(e) => { this.autoBots = e.target.checked; }}> 🤖 Auto-bots</label>` : ''}
+          ${this.isMod && this.autoBots ? html`
+            <div class="row botspeed" style="margin-top:4px; gap:4px; justify-content:flex-end" title="Velocidad de juego de los bots">
+              <span class="muted" style="font-size:.74rem">Velocidad:</span>
+              ${[{ ms: 3000, t: 'Lento' }, { ms: 1500, t: 'Medio' }, { ms: 700, t: 'Rápido' }].map((o) => html`
+                <button class="btn-sm ${this.botDelayMs === o.ms ? 'btn-primary' : ''}" @click=${() => this.setBotDelay(o.ms)}>${o.t}</button>`)}
+            </div>` : ''}
           <div class="row" style="margin-top:6px; gap:6px">
             ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" @click=${() => this.pause()}>⏸ Pausar</button>` : ''}
             ${this.isMod && g.status === 'paused' ? html`<button class="btn-primary btn-sm" @click=${() => this.resume()}>▶ Reanudar</button>` : ''}
@@ -489,14 +506,35 @@ export class GameBoard extends LitElement {
   }
 
   renderFinished() {
+    const isNoWip = this.board?.mode === 'nowip';
     return html`<div class="controls card center stack">
       <h2 style="margin:0">🏁 Ronda ${this.game.round} terminada</h2>
       <p>Total de historias en <strong>Done</strong>: <strong style="font-size:1.4rem">${R.doneTotal(this.game)}</strong></p>
-      <div class="row" style="justify-content:center">
+      <div class="row" style="justify-content:center; flex-wrap:wrap">
         <a class="btn btn-primary" href="/results?id=${this.boardId}">📊 Ver resultados y gráficas</a>
-        ${this.isMod ? html`<a class="btn" href="/admin">🎛 Facilitador (siguiente ronda)</a>` : ''}
+        ${this.isMod && isNoWip ? html`<button class="btn" @click=${() => this.startWipAndOpen()}>▶ Iniciar ronda CON WIP y abrir</button>` : ''}
+        ${this.isMod ? html`<a class="btn btn-ghost" href=${this.adminHref()}>🎛 Facilitador</a>` : ''}
       </div>
     </div>`;
+  }
+  /** Arranca el tablero CON WIP del mismo equipo (misma config de partida) y navega a él. */
+  async startWipAndOpen() {
+    try {
+      const team = await getTeam(this.board.teamId);
+      const wipId = team?.boardWip;
+      if (!wipId) return toast('No se encontró el tablero con WIP del equipo', 'error');
+      const wipBoard = await getBoard(wipId);
+      if (!wipBoard) return toast('No se encontró el tablero con WIP', 'error');
+      const session = (this.board.partidaId ? (await getPartida(this.board.partidaId))?.session : null) || {};
+      await startGame(wipBoard, {
+        wipEnabled: true,
+        rondas: session.rondas ?? 3,
+        ciclos: session.ciclos ?? 5,
+        timeLimitMinutes: session.timeLimitMinutes ?? null,
+        pauseBetweenRounds: session.pauseBetweenRounds ?? false,
+      });
+      location.href = `/board?id=${wipId}`;
+    } catch (e) { console.error(e); toast('No se pudo iniciar la ronda con WIP', 'error'); }
   }
 
   renderLog() {
