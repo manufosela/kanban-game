@@ -1,11 +1,15 @@
 import { LitElement, html } from 'lit';
 import {
-  watchUsers, watchTeams, watchBoards, watchSession, watchInvited, watchFacilitators, watchBots,
+  watchUsers, watchTeams, watchBoards, watchInvited, watchBots,
   setUserRole, createTeam, renameTeam, deleteTeam,
-  renameBoard, setBoardColumns, assignToTeam, unassignFromTeam, setSession,
+  renameBoard, setBoardColumns, assignToTeam, unassignFromTeam,
   addInvited, deleteInvited, setInvitedAssignment,
-  setUserDefaultRole, setInvitedRole, setFacilitator,
+  setUserDefaultRole, setInvitedRole,
   isBotId, addBotToTeam, removeBotFromTeam, setBotRole, getBoard,
+  watchPartidas, createPartida, renamePartida, deletePartida,
+  watchPartidaSession, updatePartidaSession,
+  watchPartidaFacilitators, setPartidaFacilitator, findUserPartida,
+  migrateLegacyToPartida1,
 } from '../lib/db.js';
 import { startPartidaForBoards, startGame } from '../lib/game.js';
 import { defaultColumns } from '../lib/rules.js';
@@ -23,6 +27,8 @@ export class AdminPanel extends LitElement {
     invited: { state: true },
     facilitators: { state: true },
     bots: { state: true },
+    partidas: { state: true },
+    currentPartidaId: { state: true },
     expanded: { state: true },
     selectedBoard: { state: true },
     me: { attribute: false },
@@ -37,6 +43,8 @@ export class AdminPanel extends LitElement {
     this.invited = [];
     this.facilitators = [];
     this.bots = [];
+    this.partidas = [];
+    this.currentPartidaId = null;
     this.expanded = {};
     this.session = { mode: 'nowip', timeLimitMinutes: null };
     this.selectedBoard = null;
@@ -50,25 +58,74 @@ export class AdminPanel extends LitElement {
     super.connectedCallback();
     this._u = watchUsers((l) => { this.users = l; });
     this._t = watchTeams((l) => { this.teams = l; });
-    this._s = watchSession((s) => { this.session = s; });
     this._i = watchInvited((l) => { this.invited = l; });
-    this._f = watchFacilitators((l) => { this.facilitators = l; });
     this._bots = watchBots((l) => { this.bots = l; });
+    this._p = watchPartidas((l) => { this.partidas = l; });
     this._b = watchBoards((l) => {
       this.boards = l;
       if (this.selectedBoard) this.selectedBoard = l.find((b) => b.id === this.selectedBoard.id) || null;
     });
+    // Un co-facilitador entra directo a su partida (no ve el listado global).
+    if (this.me?.facilitatorOnly) {
+      findUserPartida(this.me.uid).then((pid) => { if (pid) this.enterPartida(pid); });
+    }
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._u?.(); this._t?.(); this._b?.(); this._s?.(); this._i?.(); this._f?.(); this._bots?.(); }
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._u?.(); this._t?.(); this._b?.(); this._i?.(); this._bots?.(); this._p?.();
+    this._ps?.(); this._pf?.();
+  }
+
+  /** Entra a una partida: scoping de toda la gestión + watchers de sesión/facilitadores de esa partida. */
+  enterPartida(pid) {
+    this.currentPartidaId = pid;
+    this.tab = this.me?.facilitatorOnly ? 'facilitator' : 'people';
+    this.selectedBoard = null;
+    this._ps?.(); this._pf?.();
+    this._ps = watchPartidaSession(pid, (s) => { this.session = s; });
+    this._pf = watchPartidaFacilitators(pid, (l) => { this.facilitators = l; });
+  }
+  leavePartida() {
+    this._ps?.(); this._pf?.();
+    this._ps = null; this._pf = null;
+    this.currentPartidaId = null;
+    this.selectedBoard = null;
+  }
+  currentPartida() { return this.partidas.find((p) => p.id === this.currentPartidaId) || null; }
+
+  // ---- Listas filtradas a la partida activa (las colecciones son planas con partidaId) ----
+  get pTeams() { return this.teams.filter((t) => t.partidaId === this.currentPartidaId); }
+  get pBoards() { return this.boards.filter((b) => b.partidaId === this.currentPartidaId); }
+  get pInvited() { return this.invited.filter((iv) => iv.partidaId === this.currentPartidaId); }
+  /** uids reales que son miembros de algún equipo de la partida activa. */
+  partidaUserIds() {
+    const s = new Set();
+    this.pTeams.forEach((t) => Object.keys(t.members || {}).forEach((u) => { if (!isBotId(u)) s.add(u); }));
+    return s;
+  }
+  /** uids reales asignados a algún equipo de CUALQUIER partida (para detectar globales libres). */
+  assignedAnywhere() {
+    const s = new Set();
+    this.teams.forEach((t) => Object.keys(t.members || {}).forEach((u) => { if (!isBotId(u)) s.add(u); }));
+    return s;
+  }
 
   teamName(id) { return this.teams.find((t) => t.id === id)?.name || '—'; }
 
   render() {
     const facOnly = this.me?.facilitatorOnly;
+    // Sin partida seleccionada: el admin ve el listado de partidas; el co-facilitador espera a su routing.
+    if (!this.currentPartidaId) {
+      if (facOnly) return html`<div class="card"><p class="muted">No tienes ninguna partida asignada como co-facilitador. Pide a un administrador que te asigne a una.</p></div>`;
+      return this.renderPartidas();
+    }
+    const p = this.currentPartida();
     const tab = facOnly ? 'facilitator' : this.tab;
     return html`
-      <div class="flex-between">
-        <h1>${facOnly ? 'Facilitador' : 'Administración'}</h1>
+      <div class="flex-between" style="flex-wrap:wrap; gap:8px">
+        <h1 style="margin:0">${facOnly ? '🎛 Facilitador' : '🗂 '}${p ? p.name : 'Partida'}
+          ${p?.isDemo ? html`<span class="tag" style="background:#1f3a2a;color:#9ff0c0">demo</span>` : ''}</h1>
+        ${facOnly ? '' : html`<button @click=${() => this.leavePartida()}>← Todas las partidas</button>`}
       </div>
       ${facOnly ? '' : html`
         <div class="row tabs" style="margin:12px 0; gap:6px">
@@ -82,13 +139,108 @@ export class AdminPanel extends LitElement {
     `;
   }
 
+  // ---------------- Partidas (entidad raíz) ----------------
+  renderPartidas() {
+    // Datos antiguos sin partida (de antes del modelo de partidas).
+    const legacy = this.teams.some((t) => !t.partidaId) || this.boards.some((b) => !b.partidaId);
+    return html`
+      <div class="flex-between"><h1 style="margin:0">🗂 Partidas</h1></div>
+      ${legacy ? html`
+        <div class="card stack" style="margin-top:12px; border:1px solid var(--c-warning)">
+          <h3 style="margin:0">⚠ Datos sin partida</h3>
+          <p class="muted" style="margin:0">Hay equipos o tableros creados antes del modelo de partidas. Migra todo a una <strong>Partida 1</strong> (conserva su sesión y co-facilitadores). Es seguro e idempotente.</p>
+          <div><button class="btn-primary" @click=${() => this.runMigration()}>📦 Migrar datos a «Partida 1»</button></div>
+        </div>` : ''}
+      <div class="card stack" style="margin-top:12px">
+        <div class="row">
+          <input id="newPartida" type="text" placeholder="Nombre de la partida (p.ej. Taller Kanban — Marzo)" style="max-width:360px"
+                 @keydown=${(e) => { if (e.key === 'Enter') this.addPartida(); }}>
+          <button class="btn-primary" @click=${() => this.addPartida()}>+ Crear partida</button>
+          <span class="muted">·</span>
+          <button class="btn" @click=${() => this.createDemoPartida()}>🎮 Generar partida demo completa</button>
+        </div>
+        <p class="muted" style="margin:0">Cada partida agrupa sus propias personas, equipos, tableros y configuración. Solo el login es global; el resto se gestiona dentro de cada partida.</p>
+      </div>
+      ${this.partidas.length === 0 ? html`<p class="empty-state">No hay partidas todavía. Crea la primera.</p>` : html`
+        <div class="card" style="margin-top:12px">
+          <table class="t">
+            <thead><tr><th>Partida</th><th>Equipos</th><th>Tableros</th><th>Personas</th><th></th></tr></thead>
+            <tbody>
+              ${this.partidas.map((p) => {
+                const tms = this.teams.filter((t) => t.partidaId === p.id);
+                const bds = this.boards.filter((b) => b.partidaId === p.id);
+                const realIds = new Set();
+                tms.forEach((t) => Object.keys(t.members || {}).forEach((u) => { if (!isBotId(u)) realIds.add(u); }));
+                const pend = this.invited.filter((iv) => iv.partidaId === p.id).length;
+                return html`<tr>
+                  <td><strong>${p.name}</strong> ${p.isDemo ? html`<span class="tag" style="background:#1f3a2a;color:#9ff0c0">demo</span>` : ''}</td>
+                  <td>${tms.length}</td>
+                  <td>${bds.length}</td>
+                  <td>${realIds.size}${pend ? html` <span class="muted">(+${pend} pend.)</span>` : ''}</td>
+                  <td class="row" style="gap:6px">
+                    <button class="btn-sm btn-primary" @click=${() => this.enterPartida(p.id)}>Entrar</button>
+                    <button class="btn-sm" @click=${() => this.renamePartidaPrompt(p)}>Renombrar</button>
+                    <button class="btn-sm btn-danger" @click=${() => this.removePartida(p)}>Eliminar</button>
+                  </td>
+                </tr>`;
+              })}
+            </tbody>
+          </table>
+        </div>`}
+      ${this.tableStyles()}
+    `;
+  }
+  async runMigration() {
+    const ok = await confirmDialog('¿Migrar todos los equipos, tableros, invitados y bots sin partida a una nueva «Partida 1»? Se conservan tal cual; solo se agrupan.', { title: 'Migrar datos antiguos' });
+    if (!ok) return;
+    const pid = await migrateLegacyToPartida1(this.me?.uid);
+    toast(pid ? 'Datos migrados a «Partida 1»' : 'No había nada que migrar', pid ? 'success' : 'info');
+  }
+  async addPartida() {
+    const input = this.querySelector('#newPartida');
+    const name = (input.value || '').trim();
+    if (!name) return toast('Escribe un nombre para la partida', 'warning');
+    const pid = await createPartida(name, this.me?.uid, false);
+    input.value = '';
+    toast('Partida creada', 'success');
+    this.enterPartida(pid);
+  }
+  async renamePartidaPrompt(p) {
+    const name = await promptDialog('Nuevo nombre de la partida', { title: 'Renombrar partida', value: p.name });
+    if (name) { await renamePartida(p.id, name); toast('Partida renombrada', 'success'); }
+  }
+  async removePartida(p) {
+    const ok = await confirmDialog(`¿Eliminar la partida "${p.name}" con TODOS sus equipos, tableros, partidas jugadas, resultados, bots e invitados? Esta acción no se puede deshacer.`, { title: 'Eliminar partida', danger: true });
+    if (!ok) return;
+    await deletePartida(p.id);
+    if (this.currentPartidaId === p.id) this.leavePartida();
+    toast('Partida eliminada', 'success');
+  }
+  /** Crea una partida demo completa: equipo de bots, inicia su tablero y lo abre. */
+  async createDemoPartida() {
+    const ok = await confirmDialog('¿Generar una partida demo completa (equipo de bots: 1 PM, 3 DEV, 1 QA), iniciarla y abrir el tablero para verla jugar sola?', { title: 'Partida demo completa' });
+    if (!ok) return;
+    const n = this.partidas.filter((p) => p.isDemo).length + 1;
+    const pid = await createPartida(`Demo ${n}`, this.me?.uid, true);
+    const team = await createTeam('Equipo demo', this.me?.uid, pid);
+    await addBotToTeam(team, 'PM', 'Bot PM');
+    await addBotToTeam(team, 'DEV', 'Bot Dev 1');
+    await addBotToTeam(team, 'DEV', 'Bot Dev 2');
+    await addBotToTeam(team, 'DEV', 'Bot Dev 3');
+    await addBotToTeam(team, 'QA', 'Bot QA');
+    const board = await getBoard(team.boardNoWip);
+    await startGame(board, { wipEnabled: false, rondas: 3, ciclos: 5, timeLimitMinutes: null });
+    toast('Partida demo creada, ¡a jugar!', 'success');
+    location.href = `/board?id=${team.boardNoWip}`;
+  }
+
   _tab(id, label) {
     return html`<button class=${this.tab === id ? 'btn-primary' : ''} @click=${() => { this.tab = id; }}>${label}</button>`;
   }
 
   // ---------------- Personas ----------------
   teamNameOf(uid) {
-    const t = this.teams.find((x) => x.members && x.members[uid]);
+    const t = this.pTeams.find((x) => x.members && x.members[uid]);
     return t ? `${t.name} · ${t.members[uid]}` : null;
   }
   roleSelect(current, onChange) {
@@ -98,10 +250,14 @@ export class AdminPanel extends LitElement {
     </select>`;
   }
   renderPeople() {
+    // Reales de ESTA partida (miembros de sus equipos) + invitados pre-registrados en ella.
+    const memberIds = this.partidaUserIds();
+    const partidaUsers = this.users.filter((u) => memberIds.has(u.id));
+    const pInvited = this.pInvited;
     return html`
       <div class="card stack">
         <h3 style="margin:0">Pre-registrar personas por email</h3>
-        <p class="muted" style="margin:0">Pega los correos separados por comas o saltos de línea. Acepta el formato de convocatoria <code>Nombre Apellido &lt;correo&gt;</code> (rellena nombre y email) o solo el correo. Cuando entren con ese correo se asociarán solos a su equipo y rol.</p>
+        <p class="muted" style="margin:0">Pega los correos separados por comas o saltos de línea. Acepta el formato de convocatoria <code>Nombre Apellido &lt;correo&gt;</code> (rellena nombre y email) o solo el correo. Quedan asociadas a <strong>esta partida</strong>; cuando entren con ese correo se asociarán solas a su equipo y rol.</p>
         <textarea id="invEmails" rows="3" placeholder="Ana Pérez &lt;ana@correo.com&gt;, Luis Gil &lt;luis@correo.com&gt;…" style="width:100%"></textarea>
         <div><button class="btn-primary" @click=${() => this.addInvitedEmails()}>+ Añadir personas</button></div>
       </div>
@@ -109,7 +265,7 @@ export class AdminPanel extends LitElement {
         <table class="t">
           <thead><tr><th></th><th>Nombre</th><th>Email</th><th>Rol real</th><th>Estado</th><th>Equipo</th><th></th></tr></thead>
           <tbody>
-            ${this.users.map((u) => html`
+            ${partidaUsers.map((u) => html`
               <tr>
                 <td>${u.photoURL ? html`<img class="avatar" src=${u.photoURL} referrerpolicy="no-referrer" alt="">` : '👤'}</td>
                 <td>${u.name || '—'}</td>
@@ -119,19 +275,19 @@ export class AdminPanel extends LitElement {
                 <td>${this.teamNameOf(u.id) ? html`<span class="tag">${this.teamNameOf(u.id)}</span>` : html`<span class="muted">sin equipo</span>`}</td>
                 <td><button class="btn-sm" @click=${() => this.toggleAdmin(u)}>${u.role === 'admin' ? 'Quitar admin' : 'Hacer admin'}</button></td>
               </tr>`)}
-            ${this.invited.map((iv) => html`
+            ${pInvited.map((iv) => html`
               <tr>
                 <td>✉️</td>
                 <td>${iv.name || '—'}</td>
                 <td class="muted">${iv.email}</td>
                 <td>${this.roleSelect(iv.role, (v) => setInvitedRole(iv.id, v))}</td>
                 <td><span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span></td>
-                <td>${iv.teamId ? html`<span class="tag">${this.teams.find((t) => t.id === iv.teamId)?.name || iv.teamId}</span>` : html`<span class="muted">sin equipo</span>`}</td>
+                <td>${iv.teamId ? html`<span class="tag">${this.pTeams.find((t) => t.id === iv.teamId)?.name || iv.teamId}</span>` : html`<span class="muted">sin equipo</span>`}</td>
                 <td><button class="btn-sm btn-danger" @click=${() => this.removeInvited(iv)}>Eliminar</button></td>
               </tr>`)}
           </tbody>
         </table>
-        ${this.users.length === 0 && this.invited.length === 0 ? html`<p class="empty-state">Aún no hay personas. Pre-regístralas por email o pide que entren con Google.</p>` : ''}
+        ${partidaUsers.length === 0 && pInvited.length === 0 ? html`<p class="empty-state">Aún no hay personas en esta partida. Pre-regístralas por email arriba.</p>` : ''}
       </div>
       ${this.tableStyles()}
     `;
@@ -157,11 +313,12 @@ export class AdminPanel extends LitElement {
     const raw = this.querySelector('#invEmails').value || '';
     const parsed = this.parseInvited(raw);
     if (parsed.length === 0) return toast('No se reconoció ningún correo válido', 'warning');
+    // El pre-registro se indexa por email (global); evita duplicar a quien ya esté como usuario o invitado.
     const existing = new Set([...this.users.map((u) => (u.email || '').toLowerCase()), ...this.invited.map((i) => i.email)]);
     let added = 0;
-    for (const { email, name } of parsed) { if (!existing.has(email)) { await addInvited(email, name); added++; } }
+    for (const { email, name } of parsed) { if (!existing.has(email)) { await addInvited(email, name, this.currentPartidaId); added++; } }
     this.querySelector('#invEmails').value = '';
-    toast(added ? `${added} persona(s) pre-registrada(s)` : 'Ya estaban todas pre-registradas', added ? 'success' : 'info');
+    toast(added ? `${added} persona(s) pre-registrada(s) en esta partida` : 'Ya estaban todas pre-registradas', added ? 'success' : 'info');
   }
   async removeInvited(iv) {
     if (await confirmDialog(`¿Eliminar el pre-registro de ${iv.email}?`, { title: 'Eliminar pendiente', danger: true })) {
@@ -197,7 +354,7 @@ export class AdminPanel extends LitElement {
         </div>
         <p class="muted" style="margin:0">Cada equipo se crea con sus dos tableros: uno <strong>sin WIP</strong> y uno <strong>con WIP</strong>. Asigna a las personas una vez por equipo; juegan en ambos.</p>
       </div>
-      ${this.teams.length === 0 ? html`<p class="empty-state">No hay equipos todavía.</p>` : this.teams.map((t) => this.renderTeamCard(t))}
+      ${this.pTeams.length === 0 ? html`<p class="empty-state">No hay equipos todavía en esta partida.</p>` : this.pTeams.map((t) => this.renderTeamCard(t))}
       ${this.tableStyles()}
     `;
   }
@@ -299,13 +456,12 @@ export class AdminPanel extends LitElement {
     toast(`Bot ${role} añadido`, 'success');
   }
   openAddPeople(t) {
-    // Solo personas que no están en NINGÚN equipo.
-    const inAnyTeam = new Set();
-    this.teams.forEach((tm) => Object.keys(tm.members || {}).forEach((uid) => inAnyTeam.add(uid)));
+    // Candidatos: invitados de ESTA partida sin equipo + usuarios reales libres (sin equipo en ninguna partida).
+    const assigned = this.assignedAnywhere();
     const roleOrder = { PM: 0, DEV: 1, QA: 2, '': 3 };
     const cands = [
-      ...this.users.filter((u) => !inAnyTeam.has(u.id)).map((u) => ({ id: u.id, label: u.name || u.email, sub: (u.name && u.email) ? u.email : '', invited: false, role: u.defaultRole || '' })),
-      ...this.invited.filter((iv) => !iv.teamId).map((iv) => ({ id: iv.id, label: iv.name || iv.email, sub: iv.email, invited: true, role: iv.role || '' })),
+      ...this.users.filter((u) => !assigned.has(u.id)).map((u) => ({ id: u.id, label: u.name || u.email, sub: (u.name && u.email) ? u.email : '', invited: false, role: u.defaultRole || '' })),
+      ...this.pInvited.filter((iv) => !iv.teamId).map((iv) => ({ id: iv.id, label: iv.name || iv.email, sub: iv.email, invited: true, role: iv.role || '' })),
     ].sort((a, b) => (roleOrder[a.role] - roleOrder[b.role]) || a.label.localeCompare(b.label));
     const wrap = document.createElement('div');
     if (cands.length === 0) {
@@ -358,7 +514,7 @@ export class AdminPanel extends LitElement {
     const input = this.querySelector('#newTeam');
     const name = input.value.trim();
     if (!name) return toast('Escribe un nombre', 'warning');
-    await createTeam(name, this.me?.uid);
+    await createTeam(name, this.me?.uid, this.currentPartidaId);
     input.value = '';
     toast('Equipo y sus 2 tableros creados', 'success');
   }
@@ -366,7 +522,7 @@ export class AdminPanel extends LitElement {
   async demoWithBots() {
     const ok = await confirmDialog('¿Crear una demo con bots (1 PM, 3 DEV, 1 QA), iniciarla y abrir el tablero para verla jugar sola?', { title: 'Crear demo con bots' });
     if (!ok) return;
-    const team = await createTeam(`Demo ${this.teams.length + 1}`, this.me?.uid);
+    const team = await createTeam(`Demo ${this.pTeams.length + 1}`, this.me?.uid, this.currentPartidaId);
     await addBotToTeam(team, 'PM', 'Bot PM');
     await addBotToTeam(team, 'DEV', 'Bot Dev 1');
     await addBotToTeam(team, 'DEV', 'Bot Dev 2');
@@ -382,13 +538,12 @@ export class AdminPanel extends LitElement {
     toast('Demo creada, ¡a jugar!', 'success');
     location.href = `/board?id=${team.boardNoWip}`;
   }
-  /** Personas con rol real que no están en ningún equipo (reales + pendientes). */
+  /** Personas con rol real disponibles para esta partida (invitados de la partida + reales libres). */
   unassignedPeople() {
-    const inAnyTeam = new Set();
-    this.teams.forEach((t) => Object.keys(t.members || {}).forEach((uid) => inAnyTeam.add(uid)));
+    const assigned = this.assignedAnywhere();
     const people = [];
-    this.users.forEach((u) => { if (u.defaultRole && !inAnyTeam.has(u.id)) people.push({ id: u.id, role: u.defaultRole, invited: false, name: u.name || u.email }); });
-    this.invited.forEach((iv) => { if (iv.role && !iv.teamId) people.push({ id: iv.id, role: iv.role, invited: true, name: iv.name || iv.email }); });
+    this.users.forEach((u) => { if (u.defaultRole && !assigned.has(u.id)) people.push({ id: u.id, role: u.defaultRole, invited: false, name: u.name || u.email }); });
+    this.pInvited.forEach((iv) => { if (iv.role && !iv.teamId) people.push({ id: iv.id, role: iv.role, invited: true, name: iv.name || iv.email }); });
     return people;
   }
   suggestTeamCount() {
@@ -423,9 +578,9 @@ export class AdminPanel extends LitElement {
     const assignedCount = people.length - leftovers.length;
     const ok = await confirmDialog(`Se crearán ${nTeams} equipo(s) y se repartirán ${assignedCount} persona(s).${leftovers.length ? ` ${leftovers.length} quedarán sin asignar (las pones a mano).` : ''} ¿Continuar?`, { title: 'Generar equipos' });
     if (!ok) return;
-    const base = this.teams.length;
+    const base = this.pTeams.length;
     for (let i = 0; i < nTeams; i++) {
-      const team = await createTeam(`Equipo ${base + i + 1}`, this.me?.uid);
+      const team = await createTeam(`Equipo ${base + i + 1}`, this.me?.uid, this.currentPartidaId);
       for (const role of ROLES) {
         for (const p of slots[i][role]) {
           if (p.invited) await setInvitedAssignment(p.id, team.id, role);
@@ -544,7 +699,7 @@ export class AdminPanel extends LitElement {
   // ---------------- Facilitador (control central) ----------------
   renderFacilitator() {
     const mode = this.session?.mode || 'nowip';
-    const modeBoards = this.boards.filter((b) => b.mode === mode);
+    const modeBoards = this.pBoards.filter((b) => b.mode === mode);
     const anyPlaying = modeBoards.some((b) => b.status === 'playing');
     const rondas = this.session?.rondas ?? 3;
     const ciclos = this.session?.ciclos ?? 5;
@@ -606,39 +761,86 @@ export class AdminPanel extends LitElement {
   }
   renderCoFacilitators() {
     const facSet = new Set(this.facilitators);
+    // Co-facilitadores actuales (reales con el flag de esta partida; los admin facilitan siempre, no se listan aquí).
+    const current = this.users.filter((u) => facSet.has(u.id) && u.role !== 'admin');
     return html`
       <div class="card stack" style="margin-top:12px">
-        <h3 style="margin:0">Co-facilitadores</h3>
-        <p class="muted" style="margin:0">Pueden usar este panel y moderar cualquier tablero (forzar pasos, WIP, rondas, roles), pero no gestionan personas/equipos. Quítalos al terminar la sesión.</p>
+        <div class="flex-between" style="flex-wrap:wrap; gap:6px">
+          <h3 style="margin:0">Co-facilitadores de esta partida</h3>
+          <button class="btn-sm btn-primary" @click=${() => this.openAddFacilitator()}>➕ Añadir co-facilitador</button>
+        </div>
+        <p class="muted" style="margin:0">Pueden moderar los tableros de esta partida (forzar pasos, WIP, rondas, roles) y ven solo esta partida, no las demás. Quítalos al terminar la sesión. Solo pueden serlo personas que ya hayan iniciado sesión al menos una vez.</p>
+        ${current.length === 0 ? html`<p class="muted" style="margin:0">Aún no hay co-facilitadores. Pulsa «Añadir co-facilitador».</p>` : html`
         <table class="t">
-          <thead><tr><th>Persona</th><th>Co-facilitador</th></tr></thead>
+          <thead><tr><th>Persona</th><th></th></tr></thead>
           <tbody>
-            ${this.users.map((u) => html`
+            ${current.map((u) => html`
               <tr>
-                <td>${u.name || u.email} ${u.role === 'admin' ? html`<span class="tag admin">admin</span>` : ''}</td>
-                <td><input type="checkbox" ?checked=${facSet.has(u.id) || u.role === 'admin'} ?disabled=${u.role === 'admin'} @change=${(e) => this.toggleFacilitator(u, e.target.checked)}></td>
+                <td>${u.name || u.email} ${this.teamNameOf(u.id) ? html`<span class="tag">${this.teamNameOf(u.id)}</span>` : html`<span class="muted" style="font-size:.78rem">no juega</span>`}</td>
+                <td><button class="btn-sm btn-danger" @click=${() => this.toggleFacilitator(u, false)}>Quitar</button></td>
               </tr>`)}
           </tbody>
-        </table>
+        </table>`}
       </div>`;
   }
+  /** Modal para nombrar co-facilitadores: personas logadas libres (sin equipo) o ya de esta partida. */
+  openAddFacilitator() {
+    const facSet = new Set(this.facilitators);
+    const assigned = this.assignedAnywhere();
+    const memberIds = this.partidaUserIds();
+    const cands = this.users
+      .filter((u) => u.role !== 'admin' && !facSet.has(u.id) && (memberIds.has(u.id) || !assigned.has(u.id)))
+      .map((u) => ({
+        id: u.id,
+        label: u.name || u.email,
+        sub: (u.name && u.email) ? u.email : '',
+        situ: memberIds.has(u.id) ? 'juega en esta partida' : 'sin rol asignado',
+        free: !memberIds.has(u.id),
+      }))
+      .sort((a, b) => (Number(b.free) - Number(a.free)) || a.label.localeCompare(b.label));
+    const wrap = document.createElement('div');
+    if (cands.length === 0) {
+      wrap.innerHTML = '<p class="muted">No hay personas disponibles. Un co-facilitador debe haber iniciado sesión al menos una vez (los pre-registrados por email aún no valen). Si la persona ya entró, comprueba que no esté asignada a un equipo de otra partida.</p>';
+    }
+    for (const c of cands) {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:5px 0;cursor:pointer';
+      const chip = c.free
+        ? '<span style="background:#26324a;color:#bcd3ff;border-radius:999px;padding:1px 8px;font-size:.7rem">sin rol asignado</span>'
+        : '<span style="background:#1f3a2a;color:#9ff0c0;border-radius:999px;padding:1px 8px;font-size:.7rem">juega aquí</span>';
+      row.innerHTML = `<input type="checkbox" data-id="${c.id}"> ${chip} <span>${c.label}${c.sub ? ` <span style="opacity:.6">${c.sub}</span>` : ''}</span>`;
+      wrap.appendChild(row);
+    }
+    modal(wrap, {
+      title: 'Añadir co-facilitadores',
+      actions: [
+        { label: 'Cancelar', onClick: (c) => c() },
+        { label: 'Añadir seleccionadas', variant: 'primary', onClick: async (c) => {
+          const checks = [...wrap.querySelectorAll('input[type=checkbox]:checked')];
+          for (const ch of checks) await setPartidaFacilitator(this.currentPartidaId, ch.dataset.id, true);
+          c();
+          if (checks.length) toast(`${checks.length} co-facilitador(es) añadido(s)`, 'success');
+        } },
+      ],
+    });
+  }
   async toggleFacilitator(u, on) {
-    await setFacilitator(u.id, on);
+    await setPartidaFacilitator(this.currentPartidaId, u.id, on);
     toast(on ? `${u.name || u.email} es co-facilitador` : `${u.name || u.email} ya no es co-facilitador`, 'success');
   }
-  async setMode(mode) { await setSession({ mode }); }
+  async setMode(mode) { await updatePartidaSession(this.currentPartidaId, { mode }); }
   async saveSessionConfig() {
     const rondas = Math.max(1, Number(this.querySelector('#sessRondas').value) || 1);
     const ciclos = Math.max(1, Number(this.querySelector('#sessCiclos').value) || 1);
     const tv = this.querySelector('#sessTime').value.trim();
     const timeLimitMinutes = tv === '' ? null : Math.max(0, Number(tv)) || null;
     const pauseBetweenRounds = this.querySelector('#sessPause')?.checked || false;
-    await setSession({ rondas, ciclos, timeLimitMinutes, pauseBetweenRounds });
+    await updatePartidaSession(this.currentPartidaId, { rondas, ciclos, timeLimitMinutes, pauseBetweenRounds });
     toast(`Configuración: ${rondas} rondas × ${ciclos} ciclos`, 'success');
   }
   async startPartida() {
     const mode = this.session?.mode || 'nowip';
-    const modeBoards = this.boards.filter((b) => b.mode === mode);
+    const modeBoards = this.pBoards.filter((b) => b.mode === mode);
     if (modeBoards.length === 0) return toast('No hay tableros de este modo', 'warning');
     const problems = [];
     for (const b of modeBoards) {
