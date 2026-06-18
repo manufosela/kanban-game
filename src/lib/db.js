@@ -141,6 +141,34 @@ export async function unassignFromTeam(team, uid) {
   await update(ref(db), updates);
 }
 
+// ---- Bots (jugadores ficticios; miembros sintéticos del equipo) ----
+export function isBotId(id) { return typeof id === 'string' && id.startsWith('bot_'); }
+export function watchBots(cb) {
+  return onValue(ref(db, 'bots'), (s) => cb(toList(s.val())));
+}
+export async function addBotToTeam(team, role, name) {
+  const botId = newId('bot');
+  const updates = {};
+  updates[`bots/${botId}`] = { name: name || 'Bot', createdAt: serverTimestamp() };
+  updates[`teams/${team.id}/members/${botId}`] = role;
+  for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) updates[`boards/${bid}/roleAssignments/${botId}`] = role;
+  await update(ref(db), updates);
+  return botId;
+}
+export async function setBotRole(team, botId, role) {
+  const updates = {};
+  updates[`teams/${team.id}/members/${botId}`] = role;
+  for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) updates[`boards/${bid}/roleAssignments/${botId}`] = role;
+  await update(ref(db), updates);
+}
+export async function removeBotFromTeam(team, botId) {
+  const updates = {};
+  updates[`bots/${botId}`] = null;
+  updates[`teams/${team.id}/members/${botId}`] = null;
+  for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) updates[`boards/${bid}/roleAssignments/${botId}`] = null;
+  await update(ref(db), updates);
+}
+
 // ---- Sesión del facilitador (modo activo + tiempo) ----
 export function watchSession(cb) {
   return onValue(ref(db, 'session'), (s) => cb(s.exists() ? s.val() : { mode: 'nowip', timeLimitMinutes: null }));

@@ -36,7 +36,7 @@ export function watchGame(boardId, cb) {
  * Inicializa (o reinicia) una partida. Una partida dura M rondas × N ciclos.
  * opts = { wipEnabled, rondas, ciclos, timeLimitMinutes }
  */
-export async function startGame(board, { wipEnabled = false, rondas = 2, ciclos = 5, timeLimitMinutes = null } = {}) {
+export async function startGame(board, { wipEnabled = false, rondas = 2, ciclos = 5, timeLimitMinutes = null, pauseBetweenRounds = false } = {}) {
   const cols = R.orderedColumns(board.columns).map((c, i) => ({
     id: c.id, name: c.name, order: i, wipLimit: c.wipLimit ?? null,
   }));
@@ -49,6 +49,7 @@ export async function startGame(board, { wipEnabled = false, rondas = 2, ciclos 
     rondas: M,
     ciclos: N,
     totalCycles: M * N,
+    pauseBetweenRounds: !!pauseBetweenRounds,
     turn: 1, // ciclo actual (1..totalCycles)
     step: STEP.PM_ADD,
     status: 'playing',
@@ -77,6 +78,15 @@ export async function startPartidaForBoards(boards, mode, opts = {}) {
   const wipEnabled = mode === 'wip';
   await Promise.all((boards || []).map((b) => startGame(b, { ...opts, wipEnabled })));
   return (boards || []).length;
+}
+
+/** Pausa una partida en curso (bloquea acciones y bots). */
+export async function pauseGame(boardId) {
+  await runTransaction(ref(db, `games/${boardId}/status`), (s) => (s === 'playing' ? 'paused' : s));
+}
+/** Reanuda una partida pausada. */
+export async function resumeGame(boardId) {
+  await runTransaction(ref(db, `games/${boardId}/status`), (s) => (s === 'paused' ? 'playing' : s));
 }
 
 /** Añade una ronda (N ciclos más) a una partida en curso. */
@@ -194,10 +204,16 @@ function endTurn(s) {
     s.endedAt = Date.now();
     pushLog(s, `Fin de la partida ${s.wipEnabled ? '(con WIP)' : '(sin WIP)'}. Total en Done: ${R.doneTotal(s)}.`);
   } else {
+    const finishedCiclo = s.turn;
     s.turn += 1;
     s.step = STEP.PM_ADD;
     s.dice = null;
     pushLog(s, `Comienza el ciclo ${s.turn}.`);
+    // Parar entre rondas: si se acaba de completar una ronda, pausar.
+    if (s.pauseBetweenRounds && finishedCiclo % N === 0) {
+      s.status = 'paused';
+      pushLog(s, `Fin de la ronda ${finishedCiclo / N}. Partida en pausa; el facilitador reanuda.`);
+    }
   }
 }
 
@@ -257,6 +273,7 @@ const HANDLERS = {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
     const cur = currentDev(s);
     if (!cur) return { msg: 'Todos los Devs han actuado.' };
+    if (a.expect && a.expect.dev && cur !== a.expect.dev) return { msg: 'El turno ya cambió.' };
     const dice = a.dice;
     setDice(s, 'dev-advance', dice, cur);
     if (!R.diceAdvances(dice)) pushLog(s, `Dev saca ${dice}: la historia no avanza.`);
@@ -274,6 +291,7 @@ const HANDLERS = {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
     const cur = currentDev(s);
     if (!cur) return { msg: 'Todos los Devs han actuado.' };
+    if (a.expect && a.expect.dev && cur !== a.expect.dev) return { msg: 'El turno ya cambió.' };
     const dice = a.dice;
     setDice(s, 'dev-review', dice, cur);
     if (!R.diceAdvances(dice)) pushLog(s, `Revisión de PR: saca ${dice}, no se completa.`);
@@ -291,6 +309,7 @@ const HANDLERS = {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
     const cur = currentDev(s);
     if (!cur) return { msg: 'Todos los Devs han actuado.' };
+    if (a.expect && a.expect.dev && cur !== a.expect.dev) return { msg: 'El turno ya cambió.' };
     const partner = a.partner;
     const order = s.devOrder || [];
     const acted = s.devActed || {};
@@ -322,6 +341,7 @@ const HANDLERS = {
   'qa-test': (s, a) => {
     if (s.step !== STEP.QA) return { msg: 'No es el paso de QA.' };
     if ((s.qaRolls || 0) >= R.QA_MAX_ROLLS) return { msg: 'QA ya agotó sus tiradas este turno.' };
+    if (a.expect && a.expect.qaRolls != null && (s.qaRolls || 0) !== a.expect.qaRolls) return { msg: 'El estado de QA cambió.' };
     const dice = a.dice;
     setDice(s, 'qa-test', dice, a.by);
     s.qaRolls = (s.qaRolls || 0) + 1;
@@ -366,4 +386,50 @@ function reason(code) {
 export async function getGame(boardId) {
   const s = await get(ref(db, `games/${boardId}`));
   return s.exists() ? s.val() : null;
+}
+
+/**
+ * Calcula la jugada del bot al que le toca actuar según el paso actual.
+ * Devuelve una acción { type, ...payload, expect } o null. Heurística simple
+ * que mantiene el flujo. El campo `expect` protege contra acciones obsoletas.
+ */
+export function botAction(state) {
+  if (!state || state.status !== 'playing') return null;
+  const cols = R.orderedColumns(state.columns);
+  const a = R.anchors(cols);
+  const step = state.step;
+  if (step === STEP.PM_ADD) return { type: 'pm-add', expect: { step } };
+  if (step === STEP.PM_PULL) return { type: 'pm-pull', dice: rollDie(), expect: { step } };
+  if (step === STEP.PM_VALIDATE) return { type: 'pm-validate', dice: rollDie(), expect: { step } };
+  if (step === STEP.QA) {
+    const qaCards = R.cardsInColumn(state.cards, a.id.qa);
+    if ((state.qaRolls || 0) < R.QA_MAX_ROLLS && qaCards.length) {
+      return { type: 'qa-test', cardId: qaCards[0].id, dice: rollDie(), expect: { step, qaRolls: state.qaRolls || 0 } };
+    }
+    return { type: 'qa-finish', expect: { step } };
+  }
+  if (step === STEP.DEVS) {
+    const cur = currentDev(state);
+    if (!cur) return { type: 'dev-finish', expect: { step } };
+    // Preferir revisar PR si hay y QA tiene hueco (alimenta a QA).
+    const reviewCards = R.cardsInColumn(state.cards, a.id.review);
+    if (reviewCards.length && R.hasRoom(state, a.id.qa)) {
+      return { type: 'dev-review', cardId: reviewCards[0].id, dice: rollDie(), expect: { step, dev: cur } };
+    }
+    // Avanzar: elegir una historia cuyo destino tenga hueco, priorizando la más avanzada.
+    const sources = R.advanceSources(state);
+    let pick = null;
+    for (let i = sources.length - 1; i >= 0 && !pick; i--) {
+      const next = R.nextColumnId(state, sources[i]);
+      for (const c of R.cardsInColumn(state.cards, sources[i])) { if (R.hasRoom(state, next)) { pick = c; break; } }
+    }
+    if (!pick) {
+      for (let i = sources.length - 1; i >= 0 && !pick; i--) {
+        const cs = R.cardsInColumn(state.cards, sources[i]);
+        if (cs.length) { pick = cs[0]; }
+      }
+    }
+    return { type: 'dev-advance', cardId: pick ? pick.id : null, dice: rollDie(), expect: { step, dev: cur } };
+  }
+  return null;
 }

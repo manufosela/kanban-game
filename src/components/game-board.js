@@ -1,8 +1,9 @@
 import { LitElement, html } from 'lit';
-import { watchBoard, watchUsers, watchFacilitators } from '../lib/db.js';
+import { watchBoard, watchUsers, watchFacilitators, watchBots, isBotId } from '../lib/db.js';
 import {
   watchGame, applyAction, STEP, STEP_ROLE, STEP_LABEL,
-  roundInfo, addRonda, setGameColumnWip, setGameRole, currentDev,
+  roundInfo, addRonda, setGameColumnWip, setGameRole, currentDev, botAction,
+  pauseGame, resumeGame,
 } from '../lib/game.js';
 import * as R from '../lib/rules.js';
 import { toast, promptDialog, confirmDialog } from '../lib/ui.js';
@@ -21,6 +22,8 @@ export class GameBoard extends LitElement {
     game: { state: true },
     users: { state: true },
     facilitators: { state: true },
+    bots: { state: true },
+    autoBots: { state: true },
     selectedCardId: { state: true },
     devAction: { state: true },
     pairPartner: { state: true },
@@ -32,6 +35,8 @@ export class GameBoard extends LitElement {
     this.game = null;
     this.users = [];
     this.facilitators = [];
+    this.bots = [];
+    this.autoBots = true;
     this.selectedCardId = null;
     this.devAction = 'advance';
     this.pairPartner = null;
@@ -44,12 +49,50 @@ export class GameBoard extends LitElement {
     this._wg = watchGame(this.boardId, (g) => { this.game = g; });
     this._wu = watchUsers((l) => { this.users = l; });
     this._wf = watchFacilitators((l) => { this.facilitators = l; });
+    this._wbots = watchBots((l) => { this.bots = l; });
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._wb?.(); this._wg?.(); this._wu?.(); this._wf?.(); }
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._wb?.(); this._wg?.(); this._wu?.(); this._wf?.(); this._wbots?.();
+    if (this._botTimer) { clearTimeout(this._botTimer); this._botTimer = null; }
+  }
 
   nameOf(uid) {
+    if (isBotId(uid)) { const b = this.bots.find((x) => x.id === uid); return `🤖 ${b?.name || 'Bot'}`; }
     const u = this.users.find((x) => x.id === uid);
     return u?.name || u?.email || (uid ? `…${String(uid).slice(-4)}` : '—');
+  }
+
+  // ---- Bots dirigidos por cliente ----
+  updated() { this.maybeDriveBots(); }
+  currentBotActor() {
+    const g = this.game; if (!g) return null;
+    const ra = g.roleAssignments || {};
+    const withRole = (role) => Object.keys(ra).filter((u) => ra[u] === role);
+    if (g.step === STEP.PM_ADD || g.step === STEP.PM_PULL || g.step === STEP.PM_VALIDATE) {
+      const pms = withRole('PM'); return (pms.length && pms.every(isBotId)) ? pms[0] : null;
+    }
+    if (g.step === STEP.QA) {
+      const qas = withRole('QA'); return (qas.length && qas.every(isBotId)) ? qas[0] : null;
+    }
+    if (g.step === STEP.DEVS) {
+      const cur = this.currentDevUid; return isBotId(cur) ? cur : null;
+    }
+    return null;
+  }
+  maybeDriveBots() {
+    if (!this.autoBots || !this.isMod || this._botTimer) return;
+    const g = this.game;
+    if (!g || g.status !== 'playing') return;
+    if (!this.currentBotActor()) return;
+    this._botTimer = setTimeout(() => {
+      this._botTimer = null;
+      if (!this.autoBots || !this.isMod) return;
+      const g2 = this.game;
+      if (!g2 || g2.status !== 'playing' || !this.currentBotActor()) return;
+      const action = botAction(g2);
+      if (action) this.act(action.type, action);
+    }, 850);
   }
   get currentDevUid() { return currentDev(this.game); }
   /** ¿Me toca accionar AHORA? (en Devs, solo el Dev de turno; admin siempre). */
@@ -85,7 +128,9 @@ export class GameBoard extends LitElement {
     return html`
       ${this.renderTopBar()}
       ${this.renderColumns()}
-      ${this.game.status === 'finished' ? this.renderFinished() : this.renderControls()}
+      ${this.game.status === 'finished' ? this.renderFinished()
+        : this.game.status === 'paused' ? this.renderPaused()
+        : this.renderControls()}
       ${this.game.status === 'playing' && this.actorIsMe ? this.renderPreview() : ''}
       ${this.renderLog()}
       ${this.styles()}
@@ -112,6 +157,15 @@ export class GameBoard extends LitElement {
     this._toldTimeup = true;
     toast('⏱ ¡Tiempo de la ronda agotado! Podéis terminar la ronda cuando queráis.', 'warning', 7000);
   }
+  async pause() { await pauseGame(this.boardId); }
+  async resume() { await resumeGame(this.boardId); }
+  renderPaused() {
+    return html`<div class="controls card center stack">
+      <h2 style="margin:0">⏸ Partida en pausa</h2>
+      <p class="muted">Buen momento para revisar el tablero. El facilitador la reanudará para continuar.</p>
+      ${this.isMod ? html`<div class="row" style="justify-content:center"><button class="btn-primary btn-lg" @click=${() => this.resume()}>▶ Reanudar</button></div>` : ''}
+    </div>`;
+  }
 
   renderTopBar() {
     const g = this.game;
@@ -135,10 +189,16 @@ export class GameBoard extends LitElement {
           <div class="muted">${STEP_LABEL[g.step]}</div>
           <div class="who">
             ${g.status === 'finished' ? 'Partida terminada'
+              : g.status === 'paused' ? '⏸ Pausada'
               : youAct ? html`<span class="badge-you">Te toca a ti (${role})</span>`
               : html`Esperando a <span class="tag role-${role}">${role}</span>`}
           </div>
-          ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" style="margin-top:6px" @click=${() => this.addRound()}>➕ Añadir ronda</button>` : ''}
+          ${this.isMod ? html`<label class="rolepick" style="margin-top:6px" title="Si está activado y le toca a un bot, juega solo desde aquí"><input type="checkbox" ?checked=${this.autoBots} @change=${(e) => { this.autoBots = e.target.checked; }}> 🤖 Auto-bots</label>` : ''}
+          <div class="row" style="margin-top:6px; gap:6px">
+            ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" @click=${() => this.pause()}>⏸ Pausar</button>` : ''}
+            ${this.isMod && g.status === 'paused' ? html`<button class="btn-primary btn-sm" @click=${() => this.resume()}>▶ Reanudar</button>` : ''}
+            ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" @click=${() => this.addRound()}>➕ Añadir ronda</button>` : ''}
+          </div>
         </div>
       </div>
     `;
