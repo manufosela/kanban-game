@@ -41,7 +41,7 @@ import Layout from '../layouts/Layout.astro';
     watchBoards((list) => { boards = list; render(); });
 
     function render() {
-      const mine = boards.filter((b) => isAdmin || (b.roleAssignments && b.roleAssignments[user.uid]));
+      const mine = boards.filter((b) => b.roleAssignments && b.roleAssignments[user.uid]);
       const host = document.getElementById('boards');
       const empty = document.getElementById('empty');
 

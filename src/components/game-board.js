@@ -3,6 +3,7 @@ import { watchBoard, watchUsers, watchFacilitators, watchBots, isBotId } from '.
 import {
   watchGame, applyAction, STEP, STEP_ROLE, STEP_LABEL,
   roundInfo, addRonda, setGameColumnWip, setGameRole, currentDev, botAction,
+  pauseGame, resumeGame,
 } from '../lib/game.js';
 import * as R from '../lib/rules.js';
 import { toast, promptDialog, confirmDialog } from '../lib/ui.js';
@@ -127,7 +128,9 @@ export class GameBoard extends LitElement {
     return html`
       ${this.renderTopBar()}
       ${this.renderColumns()}
-      ${this.game.status === 'finished' ? this.renderFinished() : this.renderControls()}
+      ${this.game.status === 'finished' ? this.renderFinished()
+        : this.game.status === 'paused' ? this.renderPaused()
+        : this.renderControls()}
       ${this.game.status === 'playing' && this.actorIsMe ? this.renderPreview() : ''}
       ${this.renderLog()}
       ${this.styles()}
@@ -154,6 +157,15 @@ export class GameBoard extends LitElement {
     this._toldTimeup = true;
     toast('⏱ ¡Tiempo de la ronda agotado! Podéis terminar la ronda cuando queráis.', 'warning', 7000);
   }
+  async pause() { await pauseGame(this.boardId); }
+  async resume() { await resumeGame(this.boardId); }
+  renderPaused() {
+    return html`<div class="controls card center stack">
+      <h2 style="margin:0">⏸ Partida en pausa</h2>
+      <p class="muted">Buen momento para revisar el tablero. El facilitador la reanudará para continuar.</p>
+      ${this.isMod ? html`<div class="row" style="justify-content:center"><button class="btn-primary btn-lg" @click=${() => this.resume()}>▶ Reanudar</button></div>` : ''}
+    </div>`;
+  }
 
   renderTopBar() {
     const g = this.game;
@@ -177,11 +189,16 @@ export class GameBoard extends LitElement {
           <div class="muted">${STEP_LABEL[g.step]}</div>
           <div class="who">
             ${g.status === 'finished' ? 'Partida terminada'
+              : g.status === 'paused' ? '⏸ Pausada'
               : youAct ? html`<span class="badge-you">Te toca a ti (${role})</span>`
               : html`Esperando a <span class="tag role-${role}">${role}</span>`}
           </div>
           ${this.isMod ? html`<label class="rolepick" style="margin-top:6px" title="Si está activado y le toca a un bot, juega solo desde aquí"><input type="checkbox" ?checked=${this.autoBots} @change=${(e) => { this.autoBots = e.target.checked; }}> 🤖 Auto-bots</label>` : ''}
-          ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" style="margin-top:6px" @click=${() => this.addRound()}>➕ Añadir ronda</button>` : ''}
+          <div class="row" style="margin-top:6px; gap:6px">
+            ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" @click=${() => this.pause()}>⏸ Pausar</button>` : ''}
+            ${this.isMod && g.status === 'paused' ? html`<button class="btn-primary btn-sm" @click=${() => this.resume()}>▶ Reanudar</button>` : ''}
+            ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" @click=${() => this.addRound()}>➕ Añadir ronda</button>` : ''}
+          </div>
         </div>
       </div>
     `;

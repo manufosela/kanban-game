@@ -5,9 +5,9 @@ import {
   renameBoard, setBoardColumns, assignToTeam, unassignFromTeam, setSession,
   addInvited, deleteInvited, setInvitedAssignment,
   setUserDefaultRole, setInvitedRole, setFacilitator,
-  isBotId, addBotToTeam, removeBotFromTeam, setBotRole,
+  isBotId, addBotToTeam, removeBotFromTeam, setBotRole, getBoard,
 } from '../lib/db.js';
-import { startPartidaForBoards } from '../lib/game.js';
+import { startPartidaForBoards, startGame } from '../lib/game.js';
 import { defaultColumns } from '../lib/rules.js';
 import { toast, confirmDialog, promptDialog, modal } from '../lib/ui.js';
 
@@ -186,6 +186,8 @@ export class AdminPanel extends LitElement {
           <input id="newTeam" type="text" placeholder="Nombre del equipo" style="max-width:280px"
                  @keydown=${(e) => { if (e.key === 'Enter') this.addTeam(); }}>
           <button class="btn-primary" @click=${() => this.addTeam()}>+ Crear equipo</button>
+          <span class="muted">·</span>
+          <button class="btn" @click=${() => this.demoWithBots()}>🎮 Crear demo con bots</button>
         </div>
         <div class="row" style="gap:8px; align-items:flex-end">
           <span class="muted">o automático:</span>
@@ -359,6 +361,26 @@ export class AdminPanel extends LitElement {
     await createTeam(name, this.me?.uid);
     input.value = '';
     toast('Equipo y sus 2 tableros creados', 'success');
+  }
+  /** Crea una demo: equipo de bots con todos los roles, inicia su partida y abre el tablero. */
+  async demoWithBots() {
+    const ok = await confirmDialog('¿Crear una demo con bots (1 PM, 3 DEV, 1 QA), iniciarla y abrir el tablero para verla jugar sola?', { title: 'Crear demo con bots' });
+    if (!ok) return;
+    const team = await createTeam(`Demo ${this.teams.length + 1}`, this.me?.uid);
+    await addBotToTeam(team, 'PM', 'Bot PM');
+    await addBotToTeam(team, 'DEV', 'Bot Dev 1');
+    await addBotToTeam(team, 'DEV', 'Bot Dev 2');
+    await addBotToTeam(team, 'DEV', 'Bot Dev 3');
+    await addBotToTeam(team, 'QA', 'Bot QA');
+    const board = await getBoard(team.boardNoWip);
+    await startGame(board, {
+      wipEnabled: false,
+      rondas: this.session?.rondas ?? 3,
+      ciclos: this.session?.ciclos ?? 5,
+      timeLimitMinutes: this.session?.timeLimitMinutes ?? null,
+    });
+    toast('Demo creada, ¡a jugar!', 'success');
+    location.href = `/board?id=${team.boardNoWip}`;
   }
   /** Personas con rol real que no están en ningún equipo (reales + pendientes). */
   unassignedPeople() {
@@ -542,6 +564,7 @@ export class AdminPanel extends LitElement {
           <div><label>Rondas</label><input id="sessRondas" type="number" min="1" .value=${rondas} style="width:80px"></div>
           <div><label>Ciclos por ronda</label><input id="sessCiclos" type="number" min="1" .value=${ciclos} style="width:120px"></div>
           <div><label>Tiempo máx. partida (min)</label><input id="sessTime" type="number" min="0" .value=${this.session?.timeLimitMinutes ?? ''} placeholder="sin límite" style="width:150px"></div>
+          <label style="margin:0"><input id="sessPause" type="checkbox" ?checked=${this.session?.pauseBetweenRounds}> Parar entre rondas</label>
           <button class="btn-sm" @click=${() => this.saveSessionConfig()}>💾 Guardar</button>
           <span class="muted">Total: ${rondas * ciclos} ciclos. Igual en ambos modos.</span>
         </div>
@@ -609,7 +632,8 @@ export class AdminPanel extends LitElement {
     const ciclos = Math.max(1, Number(this.querySelector('#sessCiclos').value) || 1);
     const tv = this.querySelector('#sessTime').value.trim();
     const timeLimitMinutes = tv === '' ? null : Math.max(0, Number(tv)) || null;
-    await setSession({ rondas, ciclos, timeLimitMinutes });
+    const pauseBetweenRounds = this.querySelector('#sessPause')?.checked || false;
+    await setSession({ rondas, ciclos, timeLimitMinutes, pauseBetweenRounds });
     toast(`Configuración: ${rondas} rondas × ${ciclos} ciclos`, 'success');
   }
   async startPartida() {
@@ -628,7 +652,7 @@ export class AdminPanel extends LitElement {
     const ciclos = this.session?.ciclos ?? 5;
     const ok = await confirmDialog(`¿Iniciar la partida ${mode === 'wip' ? 'con WIP' : 'sin WIP'} (${rondas}×${ciclos} = ${rondas * ciclos} ciclos) en ${modeBoards.length} tablero(s)?`, { title: 'Iniciar partida' });
     if (!ok) return;
-    await startPartidaForBoards(modeBoards, mode, { rondas, ciclos, timeLimitMinutes: this.session?.timeLimitMinutes ?? null });
+    await startPartidaForBoards(modeBoards, mode, { rondas, ciclos, timeLimitMinutes: this.session?.timeLimitMinutes ?? null, pauseBetweenRounds: this.session?.pauseBetweenRounds || false });
     toast(`Partida iniciada en ${modeBoards.length} tablero(s)`, 'success');
   }
 

@@ -36,7 +36,7 @@ export function watchGame(boardId, cb) {
  * Inicializa (o reinicia) una partida. Una partida dura M rondas × N ciclos.
  * opts = { wipEnabled, rondas, ciclos, timeLimitMinutes }
  */
-export async function startGame(board, { wipEnabled = false, rondas = 2, ciclos = 5, timeLimitMinutes = null } = {}) {
+export async function startGame(board, { wipEnabled = false, rondas = 2, ciclos = 5, timeLimitMinutes = null, pauseBetweenRounds = false } = {}) {
   const cols = R.orderedColumns(board.columns).map((c, i) => ({
     id: c.id, name: c.name, order: i, wipLimit: c.wipLimit ?? null,
   }));
@@ -49,6 +49,7 @@ export async function startGame(board, { wipEnabled = false, rondas = 2, ciclos 
     rondas: M,
     ciclos: N,
     totalCycles: M * N,
+    pauseBetweenRounds: !!pauseBetweenRounds,
     turn: 1, // ciclo actual (1..totalCycles)
     step: STEP.PM_ADD,
     status: 'playing',
@@ -77,6 +78,15 @@ export async function startPartidaForBoards(boards, mode, opts = {}) {
   const wipEnabled = mode === 'wip';
   await Promise.all((boards || []).map((b) => startGame(b, { ...opts, wipEnabled })));
   return (boards || []).length;
+}
+
+/** Pausa una partida en curso (bloquea acciones y bots). */
+export async function pauseGame(boardId) {
+  await runTransaction(ref(db, `games/${boardId}/status`), (s) => (s === 'playing' ? 'paused' : s));
+}
+/** Reanuda una partida pausada. */
+export async function resumeGame(boardId) {
+  await runTransaction(ref(db, `games/${boardId}/status`), (s) => (s === 'paused' ? 'playing' : s));
 }
 
 /** Añade una ronda (N ciclos más) a una partida en curso. */
@@ -194,10 +204,16 @@ function endTurn(s) {
     s.endedAt = Date.now();
     pushLog(s, `Fin de la partida ${s.wipEnabled ? '(con WIP)' : '(sin WIP)'}. Total en Done: ${R.doneTotal(s)}.`);
   } else {
+    const finishedCiclo = s.turn;
     s.turn += 1;
     s.step = STEP.PM_ADD;
     s.dice = null;
     pushLog(s, `Comienza el ciclo ${s.turn}.`);
+    // Parar entre rondas: si se acaba de completar una ronda, pausar.
+    if (s.pauseBetweenRounds && finishedCiclo % N === 0) {
+      s.status = 'paused';
+      pushLog(s, `Fin de la ronda ${finishedCiclo / N}. Partida en pausa; el facilitador reanuda.`);
+    }
   }
 }
 
