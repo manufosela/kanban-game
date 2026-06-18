@@ -1,10 +1,11 @@
 import { LitElement, html } from 'lit';
 import {
-  watchUsers, watchTeams, watchBoards, watchSession, watchInvited, watchFacilitators,
+  watchUsers, watchTeams, watchBoards, watchSession, watchInvited, watchFacilitators, watchBots,
   setUserRole, createTeam, renameTeam, deleteTeam,
   renameBoard, setBoardColumns, assignToTeam, unassignFromTeam, setSession,
   addInvited, deleteInvited, setInvitedAssignment,
   setUserDefaultRole, setInvitedRole, setFacilitator,
+  isBotId, addBotToTeam, removeBotFromTeam, setBotRole,
 } from '../lib/db.js';
 import { startPartidaForBoards } from '../lib/game.js';
 import { defaultColumns } from '../lib/rules.js';
@@ -21,6 +22,7 @@ export class AdminPanel extends LitElement {
     session: { state: true },
     invited: { state: true },
     facilitators: { state: true },
+    bots: { state: true },
     expanded: { state: true },
     selectedBoard: { state: true },
     me: { attribute: false },
@@ -34,6 +36,7 @@ export class AdminPanel extends LitElement {
     this.boards = [];
     this.invited = [];
     this.facilitators = [];
+    this.bots = [];
     this.expanded = {};
     this.session = { mode: 'nowip', timeLimitMinutes: null };
     this.selectedBoard = null;
@@ -50,12 +53,13 @@ export class AdminPanel extends LitElement {
     this._s = watchSession((s) => { this.session = s; });
     this._i = watchInvited((l) => { this.invited = l; });
     this._f = watchFacilitators((l) => { this.facilitators = l; });
+    this._bots = watchBots((l) => { this.bots = l; });
     this._b = watchBoards((l) => {
       this.boards = l;
       if (this.selectedBoard) this.selectedBoard = l.find((b) => b.id === this.selectedBoard.id) || null;
     });
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._u?.(); this._t?.(); this._b?.(); this._s?.(); this._i?.(); this._f?.(); }
+  disconnectedCallback() { super.disconnectedCallback(); this._u?.(); this._t?.(); this._b?.(); this._s?.(); this._i?.(); this._f?.(); this._bots?.(); }
 
   teamName(id) { return this.teams.find((t) => t.id === id)?.name || '—'; }
 
@@ -201,8 +205,13 @@ export class AdminPanel extends LitElement {
     const list = [];
     const members = t.members || {};
     for (const [uid, role] of Object.entries(members)) {
-      const u = this.users.find((x) => x.id === uid);
-      list.push({ id: uid, name: u?.name || u?.email || uid, role, invited: false });
+      if (isBotId(uid)) {
+        const b = this.bots.find((x) => x.id === uid);
+        list.push({ id: uid, name: b?.name || 'Bot', role, bot: true });
+      } else {
+        const u = this.users.find((x) => x.id === uid);
+        list.push({ id: uid, name: u?.name || u?.email || uid, role, invited: false });
+      }
     }
     for (const iv of this.invited) {
       if (iv.teamId === t.id) list.push({ id: iv.id, name: iv.name || iv.email, email: iv.email, role: iv.role || 'DEV', invited: true });
@@ -235,9 +244,15 @@ export class AdminPanel extends LitElement {
             <span class="muted">${list.length} personas</span>
           </div>
 
-          <div class="flex-between">
+          <div class="flex-between" style="flex-wrap:wrap; gap:6px">
             <h3 style="margin:6px 0 0">Personas del equipo</h3>
-            <button class="btn-sm btn-primary" @click=${() => this.openAddPeople(t)}>➕ Añadir personas</button>
+            <span class="row" style="gap:6px">
+              <select id="bot-role-${t.id}" title="Rol del bot" style="width:auto; padding:2px 6px">
+                ${ROLES.map((r) => html`<option value=${r} ?selected=${r === 'DEV'}>${r}</option>`)}
+              </select>
+              <button class="btn-sm" @click=${() => this.addBot(t)}>🤖 Añadir bot</button>
+              <button class="btn-sm btn-primary" @click=${() => this.openAddPeople(t)}>➕ Añadir personas</button>
+            </span>
           </div>
           ${list.length === 0 ? html`<p class="muted" style="margin:0">Sin personas. Pulsa «Añadir personas».</p>` : html`
             <table class="t">
@@ -245,7 +260,7 @@ export class AdminPanel extends LitElement {
               <tbody>
                 ${list.map((p) => html`
                   <tr>
-                    <td>${p.name} ${p.invited ? html`<span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span>` : ''}</td>
+                    <td>${p.bot ? '🤖 ' : ''}${p.name} ${p.bot ? html`<span class="tag" style="background:#1f3a2a;color:#9ff0c0">bot</span>` : ''} ${p.invited ? html`<span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span>` : ''}</td>
                     <td>
                       <select @change=${(e) => this.setMemberRole(t, p, e.target.value)}>
                         ${ROLES.map((r) => html`<option value=${r} ?selected=${p.role === r}>${r}</option>`)}
@@ -264,14 +279,22 @@ export class AdminPanel extends LitElement {
     `;
   }
   async setMemberRole(t, p, role) {
-    if (p.invited) await setInvitedAssignment(p.id, t.id, role);
+    if (p.bot) await setBotRole(t, p.id, role);
+    else if (p.invited) await setInvitedAssignment(p.id, t.id, role);
     else await assignToTeam(t, p.id, role);
     toast(`${p.name} → ${role}`, 'success');
   }
   async removeMember(t, p) {
-    if (p.invited) await setInvitedAssignment(p.id, null, null);
+    if (p.bot) await removeBotFromTeam(t, p.id);
+    else if (p.invited) await setInvitedAssignment(p.id, null, null);
     else await unassignFromTeam(t, p.id);
     toast(`${p.name} fuera del equipo`, 'info');
+  }
+  async addBot(t) {
+    const role = this.querySelector(`#bot-role-${t.id}`)?.value || 'DEV';
+    const n = this.teamMemberList(t).filter((p) => p.bot && p.role === role).length + 1;
+    await addBotToTeam(t, role, `Bot ${role} ${n}`);
+    toast(`Bot ${role} añadido`, 'success');
   }
   openAddPeople(t) {
     // Solo personas que no están en NINGÚN equipo.
