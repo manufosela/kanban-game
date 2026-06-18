@@ -6,7 +6,7 @@ import {
   onAuthStateChanged,
 } from 'firebase/auth';
 import { ref, get, set, update, serverTimestamp } from 'firebase/database';
-import { auth, db, ADMIN_EMAILS } from './firebase.js';
+import { auth, db } from './firebase.js';
 import { claimInvitedOnLogin } from './db.js';
 
 const provider = new GoogleAuthProvider();
@@ -21,8 +21,9 @@ export function signOutUser() {
 
 /**
  * Garantiza que existe /users/{uid}. Si es la primera vez:
- *  - rol 'admin' si el email está en ADMIN_EMAILS o si la base de usuarios está vacía.
+ *  - rol 'admin' si la base de usuarios está vacía (primer registro = administrador).
  *  - rol 'player' en caso contrario.
+ * Los siguientes administradores se nombran desde el panel de Administración.
  * Devuelve el perfil actualizado.
  */
 export async function ensureUserRecord(user) {
@@ -39,11 +40,10 @@ export async function ensureUserRecord(user) {
     return { uid: user.uid, ...profile, ...patch };
   }
 
-  // Primer registro: determinar si es admin.
+  // Primer registro: el primer usuario de la base se convierte en administrador.
   const allUsersSnap = await get(ref(db, 'users'));
   const isFirstUser = !allUsersSnap.exists();
-  const emailIsAdmin = ADMIN_EMAILS.includes(String(user.email || '').toLowerCase());
-  const role = isFirstUser || emailIsAdmin ? 'admin' : 'player';
+  const role = isFirstUser ? 'admin' : 'player';
 
   const profile = {
     name: user.displayName || user.email,

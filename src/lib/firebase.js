@@ -17,9 +17,3 @@ const firebaseConfig = {
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getDatabase(app);
-
-/** Lista de emails configurados como admin (además del primer usuario registrado). */
-export const ADMIN_EMAILS = String(import.meta.env.PUBLIC_ADMIN_EMAILS || '')
-  .split(',')
-  .map((e) => e.trim().toLowerCase())
-  .filter(Boolean);
