@@ -148,6 +148,8 @@ export class ResultsView extends LitElement {
 
   chartStyles() {
     return html`<style>
+      kbg-cfd, kbg-throughput { display: block; width: 100%; }
+      kbg-cfd svg, kbg-throughput svg { display: block; width: 100%; height: auto; }
       kbg-results .chart-wrap { background: var(--c-bg-soft); border: 1px solid var(--c-border); border-radius: 8px; padding: 8px; }
       kbg-results table.cmp { width: 100%; border-collapse: collapse; }
       kbg-results table.cmp th, kbg-results table.cmp td { padding: 8px 10px; border-bottom: 1px solid var(--c-border); text-align: left; }

@@ -138,12 +138,16 @@ export class GameBoard extends LitElement {
     if (!this.game) return this.renderNoGame();
     return html`
       ${this.renderTopBar()}
-      ${this.renderColumns()}
-      ${this.game.status === 'finished' ? this.renderFinished()
-        : this.game.status === 'paused' ? this.renderPaused()
-        : this.renderControls()}
-      ${this.game.status === 'playing' && this.actorIsMe ? this.renderPreview() : ''}
-      ${this.renderLog()}
+      <div class="playarea">
+        <div class="playmain">
+          ${this.renderColumns()}
+          ${this.game.status === 'finished' ? this.renderFinished()
+            : this.game.status === 'paused' ? this.renderPaused()
+            : this.renderControls()}
+          ${this.game.status === 'playing' && this.actorIsMe ? this.renderPreview() : ''}
+        </div>
+        ${this.renderLog()}
+      </div>
       ${this.styles()}
     `;
   }
@@ -547,7 +551,9 @@ export class GameBoard extends LitElement {
 
   styles() {
     return html`<style>
-      kbg-game { display: block; max-width: 1200px; margin: 0 auto; padding: 16px; }
+      kbg-game { display: block; max-width: 1380px; margin: 0 auto; padding: 16px; }
+      kbg-game .playarea { display: grid; grid-template-columns: 1fr; gap: 14px; align-items: start; }
+      kbg-game .playmain { min-width: 0; }
       kbg-game .topbar { display: grid; grid-template-columns: 1.4fr 1fr 1.4fr; gap: 16px; align-items: center; margin-bottom: 14px; }
       kbg-game .status { text-align: center; }
       kbg-game .status .turn { font-size: 1.1rem; }
@@ -573,7 +579,7 @@ export class GameBoard extends LitElement {
       kbg-game .dev-chip { font-size: .85rem; padding: 3px 10px; border-radius: 999px; background: var(--c-surface-2); border: 1px solid var(--c-border); color: var(--c-text-soft); }
       kbg-game .dev-chip.done { opacity: .6; text-decoration: line-through; }
       kbg-game .dev-chip.cur { background: #173c3f; color: #7fe3ec; border-color: #4dd0e1; font-weight: 700; }
-      kbg-game .col-body { padding: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start; }
+      kbg-game .col-body { padding: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start; max-height: 52vh; overflow-y: auto; }
       kbg-game .postit { width: 56px; height: 56px; background: var(--c-postit); color: var(--c-postit-text); border-radius: 6px; box-shadow: var(--shadow-1); display: flex; align-items: center; justify-content: center; position: relative; font-weight: 800; transform: rotate(-1.5deg); }
       kbg-game .postit:nth-child(even) { transform: rotate(1.5deg); }
       kbg-game .postit.bug { background: var(--c-postit-bug); color: var(--c-postit-bug-text); }
@@ -583,10 +589,15 @@ export class GameBoard extends LitElement {
       kbg-game .postit .num { font-size: .95rem; }
       kbg-game .postit .bugmark { position: absolute; top: -8px; right: -6px; font-size: .9rem; }
       kbg-game .controls { margin-top: 14px; }
-      kbg-game .logfeed { margin-top: 14px; }
+      kbg-game .logfeed { margin: 0; }
       kbg-game .logfeed ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: .9rem; }
       kbg-game .logfeed li { border-bottom: 1px dashed var(--c-border); padding: 3px 0; }
-      @media (max-width: 760px) { kbg-game .topbar { grid-template-columns: 1fr; text-align: left; } kbg-game .status, kbg-game .stepinfo { text-align: left; } }
+      /* En pantallas anchas, el registro se coloca a un lado del tablero y queda fijo. */
+      @media (min-width: 1100px) {
+        kbg-game .playarea { grid-template-columns: minmax(0, 1fr) 300px; }
+        kbg-game .logfeed { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
+      }
+      @media (max-width: 760px) { kbg-game .topbar { grid-template-columns: 1fr; text-align: left; } kbg-game .status, kbg-game .stepinfo { text-align: left; } kbg-game .col-body { max-height: 40vh; } }
     </style>`;
   }
 }
