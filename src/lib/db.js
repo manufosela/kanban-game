@@ -364,7 +364,8 @@ export async function setInvitedAssignment(key, teamId, role) {
 
 /**
  * Al iniciar sesión: si hay un pre-registro con el email del usuario, lo asocia
- * a su equipo y rol (en ambos tableros) y elimina el registro pendiente.
+ * a su equipo y rol (en ambos tableros), lo promociona a co-facilitador si estaba
+ * marcado, y elimina el registro pendiente.
  */
 export async function claimInvitedOnLogin(user) {
   if (!user?.email) return false;

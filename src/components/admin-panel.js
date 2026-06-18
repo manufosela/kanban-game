@@ -761,7 +761,7 @@ export class AdminPanel extends LitElement {
   }
   renderCoFacilitators() {
     const facSet = new Set(this.facilitators);
-    // Co-facilitadores actuales (reales con el flag de esta partida; los admin facilitan siempre, no se listan aquí).
+    // Co-facilitadores actuales: reales con el flag (los admin facilitan siempre, no se listan).
     const current = this.users.filter((u) => facSet.has(u.id) && u.role !== 'admin');
     return html`
       <div class="card stack" style="margin-top:12px">
@@ -769,7 +769,8 @@ export class AdminPanel extends LitElement {
           <h3 style="margin:0">Co-facilitadores de esta partida</h3>
           <button class="btn-sm btn-primary" @click=${() => this.openAddFacilitator()}>➕ Añadir co-facilitador</button>
         </div>
-        <p class="muted" style="margin:0">Pueden moderar los tableros de esta partida (forzar pasos, WIP, rondas, roles) y ven solo esta partida, no las demás. Quítalos al terminar la sesión. Solo pueden serlo personas que ya hayan iniciado sesión al menos una vez.</p>
+        <p class="muted" style="margin:0">Pueden moderar los tableros de esta partida (forzar pasos, WIP, rondas, roles) y ven solo esta partida, no las demás. Quítalos al terminar la sesión.</p>
+        <p class="muted" style="margin:0">ℹ️ Por seguridad, un co-facilitador debe <strong>haber entrado con Google al menos una vez</strong> (no hace falta que tenga equipo). En cuanto entre, aparecerá aquí para marcarlo.</p>
         ${current.length === 0 ? html`<p class="muted" style="margin:0">Aún no hay co-facilitadores. Pulsa «Añadir co-facilitador».</p>` : html`
         <table class="t">
           <thead><tr><th>Persona</th><th></th></tr></thead>
@@ -783,7 +784,7 @@ export class AdminPanel extends LitElement {
         </table>`}
       </div>`;
   }
-  /** Modal para nombrar co-facilitadores: personas logadas libres (sin equipo) o ya de esta partida. */
+  /** Modal para nombrar co-facilitadores: personas que ya han iniciado sesión (libres o de la partida). */
   openAddFacilitator() {
     const facSet = new Set(this.facilitators);
     const assigned = this.assignedAnywhere();
@@ -794,13 +795,12 @@ export class AdminPanel extends LitElement {
         id: u.id,
         label: u.name || u.email,
         sub: (u.name && u.email) ? u.email : '',
-        situ: memberIds.has(u.id) ? 'juega en esta partida' : 'sin rol asignado',
         free: !memberIds.has(u.id),
       }))
       .sort((a, b) => (Number(b.free) - Number(a.free)) || a.label.localeCompare(b.label));
     const wrap = document.createElement('div');
     if (cands.length === 0) {
-      wrap.innerHTML = '<p class="muted">No hay personas disponibles. Un co-facilitador debe haber iniciado sesión al menos una vez (los pre-registrados por email aún no valen). Si la persona ya entró, comprueba que no esté asignada a un equipo de otra partida.</p>';
+      wrap.innerHTML = '<p class="muted">No hay personas disponibles. El co-facilitador debe entrar con Google una vez (un clic, sin necesidad de equipo) y entonces aparecerá aquí. Los pre-registrados por email que aún no han entrado no pueden serlo todavía.</p>';
     }
     for (const c of cands) {
       const row = document.createElement('label');
