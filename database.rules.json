@@ -54,6 +54,17 @@
       ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
     },
 
+    "partidas": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$pid": {
+        ".validate": "newData.hasChildren(['name'])",
+        "session": {
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('partidas').child($pid).child('facilitators').child(auth.uid).val() === true)"
+        }
+      }
+    },
+
     "bots": {
       ".read": "auth != null",
       ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
