@@ -1,5 +1,5 @@
 import { LitElement, html } from 'lit';
-import { watchBoard, watchUsers } from '../lib/db.js';
+import { watchBoard, watchUsers, watchFacilitators } from '../lib/db.js';
 import {
   watchGame, applyAction, STEP, STEP_ROLE, STEP_LABEL,
   roundInfo, addRonda, setGameColumnWip, setGameRole, currentDev,
@@ -20,6 +20,7 @@ export class GameBoard extends LitElement {
     board: { state: true },
     game: { state: true },
     users: { state: true },
+    facilitators: { state: true },
     selectedCardId: { state: true },
     devAction: { state: true },
     pairPartner: { state: true },
@@ -30,6 +31,7 @@ export class GameBoard extends LitElement {
     this.board = null;
     this.game = null;
     this.users = [];
+    this.facilitators = [];
     this.selectedCardId = null;
     this.devAction = 'advance';
     this.pairPartner = null;
@@ -41,8 +43,9 @@ export class GameBoard extends LitElement {
     this._wb = watchBoard(this.boardId, (b) => { this.board = b; });
     this._wg = watchGame(this.boardId, (g) => { this.game = g; });
     this._wu = watchUsers((l) => { this.users = l; });
+    this._wf = watchFacilitators((l) => { this.facilitators = l; });
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._wb?.(); this._wg?.(); this._wu?.(); }
+  disconnectedCallback() { super.disconnectedCallback(); this._wb?.(); this._wg?.(); this._wu?.(); this._wf?.(); }
 
   nameOf(uid) {
     const u = this.users.find((x) => x.id === uid);
@@ -53,7 +56,7 @@ export class GameBoard extends LitElement {
   get actorIsMe() {
     const g = this.game;
     if (!g || g.status !== 'playing') return false;
-    if (this.isAdmin) return true;
+    if (this.isMod) return true;
     if (g.step === STEP.DEVS) return this.myGameRole === 'DEV' && this.me?.uid === this.currentDevUid;
     return this.myGameRole === this.activeRole;
   }
@@ -61,8 +64,10 @@ export class GameBoard extends LitElement {
   get myGameRole() { return this.game?.roleAssignments?.[this.me?.uid] ?? this.board?.roleAssignments?.[this.me?.uid] ?? null; }
   get roleAssignments() { return this.game?.roleAssignments || this.board?.roleAssignments || {}; }
   get isAdmin() { return this.me?.isAdmin; }
+  /** Moderador de la partida: admin de la app o co-facilitador de sesión. */
+  get isMod() { return this.me?.isAdmin || (this.me?.uid && this.facilitators?.includes(this.me.uid)); }
   get activeRole() { return this.game ? STEP_ROLE[this.game.step] : null; }
-  get canAct() { return this.isAdmin || (this.myGameRole && this.myGameRole === this.activeRole); }
+  get canAct() { return this.isMod || (this.myGameRole && this.myGameRole === this.activeRole); }
 
   cols() { return R.orderedColumns(this.game.columns); }
   anchors() { return R.anchors(this.cols()); }
@@ -94,7 +99,7 @@ export class GameBoard extends LitElement {
         <h1>${this.board.name}</h1>
         ${modeTxt ? html`<div><span class="tag ${this.board.mode === 'wip' ? 'role-QA' : ''}">${modeTxt}</span></div>` : ''}
         <p class="muted">La ronda todavía no ha comenzado.</p>
-        ${this.isAdmin
+        ${this.isMod
           ? html`<p>Inicia la ronda desde <a href="/admin">Administración → Facilitador</a>.</p>`
           : html`<p>Pide al facilitador que inicie la ronda.</p>`}
         <a href="/dashboard">← Volver</a>
@@ -133,7 +138,7 @@ export class GameBoard extends LitElement {
               : youAct ? html`<span class="badge-you">Te toca a ti (${role})</span>`
               : html`Esperando a <span class="tag role-${role}">${role}</span>`}
           </div>
-          ${this.isAdmin && g.status === 'playing' ? html`<button class="btn-sm" style="margin-top:6px" @click=${() => this.addRound()}>➕ Añadir ronda</button>` : ''}
+          ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" style="margin-top:6px" @click=${() => this.addRound()}>➕ Añadir ronda</button>` : ''}
         </div>
       </div>
     `;
@@ -142,7 +147,7 @@ export class GameBoard extends LitElement {
   /** Selector de rol del propio jugador (y, si es admin, de cualquiera vía panel aparte). */
   renderRolePicker() {
     if (this.game?.status !== 'playing') {
-      return this.myGameRole ? html`<span class="tag role-${this.myGameRole}">Tu rol: ${this.myGameRole}</span>` : (this.isAdmin ? html`<span class="tag admin">facilitador</span>` : '');
+      return this.myGameRole ? html`<span class="tag role-${this.myGameRole}">Tu rol: ${this.myGameRole}</span>` : (this.isMod ? html`<span class="tag admin">facilitador</span>` : '');
     }
     const mine = this.myGameRole;
     return html`
@@ -152,7 +157,7 @@ export class GameBoard extends LitElement {
           ${ROLES.map((r) => html`<option value=${r} ?selected=${mine === r}>${r}</option>`)}
         </select>
       </label>
-      ${this.isAdmin ? html`<button class="btn-sm" @click=${() => this.openAdminRoles()}>👥 Roles</button>` : ''}
+      ${this.isMod ? html`<button class="btn-sm" @click=${() => this.openAdminRoles()}>👥 Roles</button>` : ''}
     `;
   }
   async changeMyRole(role) {
@@ -251,7 +256,7 @@ export class GameBoard extends LitElement {
             const over = hasLimit && cards.length > limit;
             const full = hasLimit && cards.length >= limit;
             const accent = COL_ACCENTS[i % COL_ACCENTS.length];
-            const wipEditable = this.isAdmin && g.wipEnabled && g.status === 'playing'
+            const wipEditable = this.isMod && g.wipEnabled && g.status === 'playing'
               && c.id !== a.id.backlog && c.id !== a.id.done;
             return html`
               <div class="column" style="--accent:${accent}">
@@ -341,7 +346,7 @@ export class GameBoard extends LitElement {
     const order = g.devOrder || [];
     const acted = g.devActed || {};
     const cur = this.currentDevUid;
-    const canFinish = this.isAdmin || this.myGameRole === 'PM';
+    const canFinish = this.isMod || this.myGameRole === 'PM';
 
     if (!this.actorIsMe) {
       return html`<div class="controls card stack">
@@ -429,7 +434,7 @@ export class GameBoard extends LitElement {
       <p>Total de historias en <strong>Done</strong>: <strong style="font-size:1.4rem">${R.doneTotal(this.game)}</strong></p>
       <div class="row" style="justify-content:center">
         <a class="btn btn-primary" href="/results?id=${this.boardId}">📊 Ver resultados y gráficas</a>
-        ${this.isAdmin ? html`<a class="btn" href="/admin">🎛 Facilitador (siguiente ronda)</a>` : ''}
+        ${this.isMod ? html`<a class="btn" href="/admin">🎛 Facilitador (siguiente ronda)</a>` : ''}
       </div>
     </div>`;
   }

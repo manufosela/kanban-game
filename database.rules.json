@@ -36,27 +36,41 @@
           "$uid": {
             ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')"
           }
+        },
+        "round": {
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('facilitators').child(auth.uid).val() === true)"
+        },
+        "status": {
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('facilitators').child(auth.uid).val() === true)"
+        },
+        "columns": {
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('facilitators').child(auth.uid).val() === true)"
         }
       }
+    },
+
+    "facilitators": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
     },
 
     "games": {
       ".read": "auth != null",
       "$boardId": {
-        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('boards').child($boardId).child('roleAssignments').child(auth.uid).exists())"
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('facilitators').child(auth.uid).val() === true || root.child('boards').child($boardId).child('roleAssignments').child(auth.uid).exists())"
       }
     },
 
     "results": {
       ".read": "auth != null",
       "$boardId": {
-        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('boards').child($boardId).child('roleAssignments').child(auth.uid).exists())"
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('facilitators').child(auth.uid).val() === true || root.child('boards').child($boardId).child('roleAssignments').child(auth.uid).exists())"
       }
     },
 
     "session": {
       ".read": "auth != null",
-      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('facilitators').child(auth.uid).val() === true)"
     },
 
     "invitedUsers": {

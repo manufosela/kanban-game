@@ -1,6 +1,6 @@
 // Acceso a datos de administración: usuarios, equipos, tableros y asignaciones.
 import {
-  ref, update, remove, get, onValue, serverTimestamp,
+  ref, set, update, remove, get, onValue, serverTimestamp,
 } from 'firebase/database';
 import { db } from './firebase.js';
 import { defaultColumns } from './rules.js';
@@ -147,6 +147,21 @@ export function watchSession(cb) {
 }
 export async function setSession(patch) {
   await update(ref(db, 'session'), patch);
+}
+
+// ---- Co-facilitadores (moderadores temporales de la sesión) ----
+export function watchFacilitators(cb) {
+  return onValue(ref(db, 'facilitators'), (s) => {
+    const v = s.val() || {};
+    cb(Object.keys(v).filter((k) => v[k]));
+  });
+}
+export async function setFacilitator(uid, on) {
+  await set(ref(db, `facilitators/${uid}`), on ? true : null);
+}
+export async function getIsFacilitator(uid) {
+  const s = await get(ref(db, `facilitators/${uid}`));
+  return s.val() === true;
 }
 
 // ---- Pre-registro de personas por email (invitados) ----

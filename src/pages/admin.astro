@@ -10,14 +10,20 @@ import Layout from '../layouts/Layout.astro';
 
   <script>
     import { requireAuth } from '../lib/session.js';
+    import { getIsFacilitator } from '../lib/db.js';
     import { AdminPanel } from '../components/admin-panel.js';
 
-    const { user, profile } = await requireAuth({ requireAdmin: true });
+    // Acceso para admin de la app O co-facilitador de sesión.
+    const { user, profile } = await requireAuth();
+    const isAdmin = profile?.role === 'admin';
+    const isFacilitator = isAdmin ? true : await getIsFacilitator(user.uid);
+    if (!isAdmin && !isFacilitator) { window.location.replace('/dashboard'); }
+
     document.getElementById('loading').remove();
     const mount = document.getElementById('mount');
     mount.hidden = false;
     const el = new AdminPanel();
-    el.me = { uid: user.uid, profile };
+    el.me = { uid: user.uid, profile, isAdmin, facilitatorOnly: !isAdmin && isFacilitator };
     mount.appendChild(el);
   </script>
 </Layout>

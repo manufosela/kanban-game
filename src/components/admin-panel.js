@@ -1,10 +1,10 @@
 import { LitElement, html } from 'lit';
 import {
-  watchUsers, watchTeams, watchBoards, watchSession, watchInvited,
+  watchUsers, watchTeams, watchBoards, watchSession, watchInvited, watchFacilitators,
   setUserRole, createTeam, renameTeam, deleteTeam,
   renameBoard, setBoardColumns, assignToTeam, unassignFromTeam, setSession,
   addInvited, deleteInvited, setInvitedAssignment,
-  setUserDefaultRole, setInvitedRole,
+  setUserDefaultRole, setInvitedRole, setFacilitator,
 } from '../lib/db.js';
 import { startPartidaForBoards } from '../lib/game.js';
 import { defaultColumns } from '../lib/rules.js';
@@ -20,6 +20,7 @@ export class AdminPanel extends LitElement {
     boards: { state: true },
     session: { state: true },
     invited: { state: true },
+    facilitators: { state: true },
     expanded: { state: true },
     selectedBoard: { state: true },
     me: { attribute: false },
@@ -32,6 +33,7 @@ export class AdminPanel extends LitElement {
     this.teams = [];
     this.boards = [];
     this.invited = [];
+    this.facilitators = [];
     this.expanded = {};
     this.session = { mode: 'nowip', timeLimitMinutes: null };
     this.selectedBoard = null;
@@ -47,28 +49,32 @@ export class AdminPanel extends LitElement {
     this._t = watchTeams((l) => { this.teams = l; });
     this._s = watchSession((s) => { this.session = s; });
     this._i = watchInvited((l) => { this.invited = l; });
+    this._f = watchFacilitators((l) => { this.facilitators = l; });
     this._b = watchBoards((l) => {
       this.boards = l;
       if (this.selectedBoard) this.selectedBoard = l.find((b) => b.id === this.selectedBoard.id) || null;
     });
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._u?.(); this._t?.(); this._b?.(); this._s?.(); this._i?.(); }
+  disconnectedCallback() { super.disconnectedCallback(); this._u?.(); this._t?.(); this._b?.(); this._s?.(); this._i?.(); this._f?.(); }
 
   teamName(id) { return this.teams.find((t) => t.id === id)?.name || '—'; }
 
   render() {
+    const facOnly = this.me?.facilitatorOnly;
+    const tab = facOnly ? 'facilitator' : this.tab;
     return html`
       <div class="flex-between">
-        <h1>Administración</h1>
+        <h1>${facOnly ? 'Facilitador' : 'Administración'}</h1>
       </div>
-      <div class="row tabs" style="margin:12px 0; gap:6px">
-        ${this._tab('people', '👤 Personas')}
-        ${this._tab('teams', '👥 Equipos y tableros')}
-        ${this._tab('facilitator', '🎛 Facilitador')}
-      </div>
-      ${this.tab === 'people' ? this.renderPeople() : ''}
-      ${this.tab === 'teams' ? this.renderTeams() : ''}
-      ${this.tab === 'facilitator' ? this.renderFacilitator() : ''}
+      ${facOnly ? '' : html`
+        <div class="row tabs" style="margin:12px 0; gap:6px">
+          ${this._tab('people', '👤 Personas')}
+          ${this._tab('teams', '👥 Equipos y tableros')}
+          ${this._tab('facilitator', '🎛 Facilitador')}
+        </div>`}
+      ${tab === 'people' ? this.renderPeople() : ''}
+      ${tab === 'teams' ? this.renderTeams() : ''}
+      ${tab === 'facilitator' ? this.renderFacilitator() : ''}
     `;
   }
 
@@ -548,8 +554,31 @@ export class AdminPanel extends LitElement {
         </div>
         <p class="muted" style="margin:0">Juega primero <strong>Sin WIP</strong> y luego <strong>Con WIP</strong> con la misma configuración. Durante la partida, el moderador puede añadir rondas o cambiar el WIP desde cada tablero.</p>
       </div>
+      ${this.me?.isAdmin ? this.renderCoFacilitators() : ''}
       ${this.tableStyles()}
     `;
+  }
+  renderCoFacilitators() {
+    const facSet = new Set(this.facilitators);
+    return html`
+      <div class="card stack" style="margin-top:12px">
+        <h3 style="margin:0">Co-facilitadores</h3>
+        <p class="muted" style="margin:0">Pueden usar este panel y moderar cualquier tablero (forzar pasos, WIP, rondas, roles), pero no gestionan personas/equipos. Quítalos al terminar la sesión.</p>
+        <table class="t">
+          <thead><tr><th>Persona</th><th>Co-facilitador</th></tr></thead>
+          <tbody>
+            ${this.users.map((u) => html`
+              <tr>
+                <td>${u.name || u.email} ${u.role === 'admin' ? html`<span class="tag admin">admin</span>` : ''}</td>
+                <td><input type="checkbox" ?checked=${facSet.has(u.id) || u.role === 'admin'} ?disabled=${u.role === 'admin'} @change=${(e) => this.toggleFacilitator(u, e.target.checked)}></td>
+              </tr>`)}
+          </tbody>
+        </table>
+      </div>`;
+  }
+  async toggleFacilitator(u, on) {
+    await setFacilitator(u.id, on);
+    toast(on ? `${u.name || u.email} es co-facilitador` : `${u.name || u.email} ya no es co-facilitador`, 'success');
   }
   async setMode(mode) { await setSession({ mode }); }
   async saveSessionConfig() {
