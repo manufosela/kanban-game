@@ -263,20 +263,24 @@ export class AdminPanel extends LitElement {
     // Solo personas que no están en NINGÚN equipo.
     const inAnyTeam = new Set();
     this.teams.forEach((tm) => Object.keys(tm.members || {}).forEach((uid) => inAnyTeam.add(uid)));
-    const realCandidates = this.users.filter((u) => !inAnyTeam.has(u.id));
-    const invCandidates = this.invited.filter((iv) => !iv.teamId);
+    const roleOrder = { PM: 0, DEV: 1, QA: 2, '': 3 };
+    const cands = [
+      ...this.users.filter((u) => !inAnyTeam.has(u.id)).map((u) => ({ id: u.id, label: u.name || u.email, sub: (u.name && u.email) ? u.email : '', invited: false, role: u.defaultRole || '' })),
+      ...this.invited.filter((iv) => !iv.teamId).map((iv) => ({ id: iv.id, label: iv.name || iv.email, sub: iv.email, invited: true, role: iv.role || '' })),
+    ].sort((a, b) => (roleOrder[a.role] - roleOrder[b.role]) || a.label.localeCompare(b.label));
     const wrap = document.createElement('div');
-    if (realCandidates.length === 0 && invCandidates.length === 0) {
+    if (cands.length === 0) {
       wrap.innerHTML = '<p class="muted">No hay más personas disponibles. Pre-registra correos en la pestaña «Personas».</p>';
     }
-    const mk = (id, label, sub, invited) => {
+    const roleChip = (role) => role
+      ? `<span class="tag role-${role}" style="font-size:.72rem">${role}</span>`
+      : '<span style="opacity:.5;font-size:.72rem">sin rol</span>';
+    for (const c of cands) {
       const row = document.createElement('label');
       row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:5px 0;cursor:pointer';
-      row.innerHTML = `<input type="checkbox" data-id="${id}" data-inv="${invited ? 1 : 0}"><span>${label}${sub ? ` <span style="opacity:.6">${sub}</span>` : ''}${invited ? ' <span style="background:#3a3416;color:#ffe08a;border-radius:999px;padding:1px 8px;font-size:.7rem">pendiente</span>' : ''}</span>`;
+      row.innerHTML = `<input type="checkbox" data-id="${c.id}" data-inv="${c.invited ? 1 : 0}" data-role="${c.role}"> ${roleChip(c.role)} <span>${c.label}${c.sub ? ` <span style="opacity:.6">${c.sub}</span>` : ''}${c.invited ? ' <span style="background:#3a3416;color:#ffe08a;border-radius:999px;padding:1px 8px;font-size:.7rem">pendiente</span>' : ''}</span>`;
       wrap.appendChild(row);
-    };
-    realCandidates.forEach((u) => mk(u.id, u.name || u.email, (u.name && u.email) ? u.email : '', false));
-    invCandidates.forEach((iv) => mk(iv.id, iv.name || iv.email, iv.email, true));
+    }
     modal(wrap, {
       title: `Añadir personas a ${t.name}`,
       actions: [
@@ -284,8 +288,9 @@ export class AdminPanel extends LitElement {
         { label: 'Añadir seleccionadas', variant: 'primary', onClick: async (c) => {
           const checks = [...wrap.querySelectorAll('input[type=checkbox]:checked')];
           for (const ch of checks) {
-            if (ch.dataset.inv === '1') await setInvitedAssignment(ch.dataset.id, t.id, 'DEV');
-            else await assignToTeam(t, ch.dataset.id, 'DEV');
+            const role = ch.dataset.role || 'DEV';
+            if (ch.dataset.inv === '1') await setInvitedAssignment(ch.dataset.id, t.id, role);
+            else await assignToTeam(t, ch.dataset.id, role);
           }
           c();
           toast(`${checks.length} persona(s) añadida(s)`, 'success');
