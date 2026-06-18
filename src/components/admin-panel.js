@@ -20,6 +20,7 @@ export class AdminPanel extends LitElement {
     boards: { state: true },
     session: { state: true },
     invited: { state: true },
+    expanded: { state: true },
     selectedBoard: { state: true },
     me: { attribute: false },
   };
@@ -31,9 +32,11 @@ export class AdminPanel extends LitElement {
     this.teams = [];
     this.boards = [];
     this.invited = [];
+    this.expanded = {};
     this.session = { mode: 'nowip', timeLimitMinutes: null };
     this.selectedBoard = null;
   }
+  toggleTeam(id) { this.expanded = { ...this.expanded, [id]: !this.expanded[id] }; }
 
   // Light DOM para heredar los estilos globales.
   createRenderRoot() { return this; }
@@ -206,46 +209,51 @@ export class AdminPanel extends LitElement {
     const counts = ROLES.reduce((a, r) => { a[r] = list.filter((p) => p.role === r).length; return a; }, {});
     const boardNoWip = this.boards.find((b) => b.id === t.boardNoWip);
     const boardWip = this.boards.find((b) => b.id === t.boardWip);
+    const open = !!this.expanded[t.id];
     return html`
       <div class="card stack" style="margin-top:12px">
-        <div class="flex-between">
-          <h2 style="margin:0">👥 ${t.name}</h2>
-          <span class="row">
+        <div class="flex-between team-head" style="cursor:pointer" @click=${() => this.toggleTeam(t.id)}>
+          <h2 style="margin:0">${open ? '▾' : '▸'} 👥 ${t.name}
+            <span class="muted" style="font-weight:400; font-size:.82rem">· ${list.length}p · PM ${counts.PM} / DEV ${counts.DEV} / QA ${counts.QA}</span>
+          </h2>
+          <span class="row" @click=${(e) => e.stopPropagation()}>
             <button class="btn-sm" @click=${() => this.renameTeam(t)}>Renombrar</button>
             <button class="btn-sm btn-danger" @click=${() => this.removeTeam(t)}>Eliminar equipo</button>
           </span>
         </div>
-        <div class="row">
-          <span class="tag role-PM">PM: ${counts.PM} <span class="muted">(1)</span></span>
-          <span class="tag role-DEV">DEV: ${counts.DEV} <span class="muted">(2-3)</span></span>
-          <span class="tag role-QA">QA: ${counts.QA} <span class="muted">(1-2)</span></span>
-          <span class="muted">${list.length} personas</span>
-        </div>
+        ${!open ? '' : html`
+          <div class="row">
+            <span class="tag role-PM">PM: ${counts.PM} <span class="muted">(1)</span></span>
+            <span class="tag role-DEV">DEV: ${counts.DEV} <span class="muted">(2-3)</span></span>
+            <span class="tag role-QA">QA: ${counts.QA} <span class="muted">(1-2)</span></span>
+            <span class="muted">${list.length} personas</span>
+          </div>
 
-        <div class="flex-between">
-          <h3 style="margin:6px 0 0">Personas del equipo</h3>
-          <button class="btn-sm btn-primary" @click=${() => this.openAddPeople(t)}>➕ Añadir personas</button>
-        </div>
-        ${list.length === 0 ? html`<p class="muted" style="margin:0">Sin personas. Pulsa «Añadir personas».</p>` : html`
-          <table class="t">
-            <thead><tr><th>Persona</th><th>Rol</th><th></th></tr></thead>
-            <tbody>
-              ${list.map((p) => html`
-                <tr>
-                  <td>${p.name} ${p.invited ? html`<span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span>` : ''}</td>
-                  <td>
-                    <select @change=${(e) => this.setMemberRole(t, p, e.target.value)}>
-                      ${ROLES.map((r) => html`<option value=${r} ?selected=${p.role === r}>${r}</option>`)}
-                    </select>
-                  </td>
-                  <td><button class="btn-sm btn-danger" @click=${() => this.removeMember(t, p)}>Quitar</button></td>
-                </tr>`)}
-            </tbody>
-          </table>`}
+          <div class="flex-between">
+            <h3 style="margin:6px 0 0">Personas del equipo</h3>
+            <button class="btn-sm btn-primary" @click=${() => this.openAddPeople(t)}>➕ Añadir personas</button>
+          </div>
+          ${list.length === 0 ? html`<p class="muted" style="margin:0">Sin personas. Pulsa «Añadir personas».</p>` : html`
+            <table class="t">
+              <thead><tr><th>Persona</th><th>Rol</th><th></th></tr></thead>
+              <tbody>
+                ${list.map((p) => html`
+                  <tr>
+                    <td>${p.name} ${p.invited ? html`<span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span>` : ''}</td>
+                    <td>
+                      <select @change=${(e) => this.setMemberRole(t, p, e.target.value)}>
+                        ${ROLES.map((r) => html`<option value=${r} ?selected=${p.role === r}>${r}</option>`)}
+                      </select>
+                    </td>
+                    <td><button class="btn-sm btn-danger" @click=${() => this.removeMember(t, p)}>Quitar</button></td>
+                  </tr>`)}
+              </tbody>
+            </table>`}
 
-        <h3 style="margin:6px 0 0">Tableros del equipo</h3>
-        ${this.renderTeamBoardRow(boardNoWip, 'sin WIP')}
-        ${this.renderTeamBoardRow(boardWip, 'con WIP')}
+          <h3 style="margin:6px 0 0">Tableros del equipo</h3>
+          ${this.renderTeamBoardRow(boardNoWip, 'sin WIP')}
+          ${this.renderTeamBoardRow(boardWip, 'con WIP')}
+        `}
       </div>
     `;
   }
