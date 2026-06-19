@@ -51,6 +51,11 @@ export function priorityOf(card) {
 export function needsPair(card) {
   return !!card && card.dev > PAIR_FIB_OVER;
 }
+/** ¿Hay alguna historia Urgent en curso (no terminada)? Bloquea el desarrollo normal. */
+export function urgentActive(state) {
+  const a = anchors(orderedColumns(state.columns));
+  return Object.values(state.cards || {}).some((c) => c.urgent && c.col !== a.id.done);
+}
 
 /** Columnas por defecto (con límites WIP usados en la Ronda 2). */
 export function defaultColumns() {
@@ -223,7 +228,7 @@ export function devAdvance(state, cardId) {
   if (!advanceSources(state).includes(card.col)) return { state, ok: false, reason: 'bad-source' };
   const toId = nextColumnId(state, card.col);
   if (!toId) return { state, ok: false, reason: 'no-target' };
-  if (!hasRoom(state, toId)) return { state, ok: false, reason: 'wip-full' };
+  if (!card.urgent && !hasRoom(state, toId)) return { state, ok: false, reason: 'wip-full' }; // Urgent ignora el WIP
   const s = moveCard(state, cardId, toId);
   return { state: s, ok: true };
 }
@@ -238,7 +243,7 @@ export function devReview(state, cardId) {
   const card = state.cards?.[cardId];
   if (!card) return { state, ok: false, reason: 'no-card' };
   if (card.col !== a.id.review) return { state, ok: false, reason: 'bad-source' };
-  if (!hasRoom(state, a.id.qa)) return { state, ok: false, reason: 'wip-full' };
+  if (!card.urgent && !hasRoom(state, a.id.qa)) return { state, ok: false, reason: 'wip-full' }; // Urgent ignora el WIP
   const s = moveCard(state, cardId, a.id.qa);
   return { state: s, ok: true };
 }
@@ -256,7 +261,7 @@ export function qaTest(state, cardId, dice) {
   if (!card || card.col !== a.id.qa) return { state, result: 'invalid' };
 
   if (diceAdvances(dice)) {
-    if (!hasRoom(state, a.id.validation)) return { state, result: 'blocked', toCol: a.id.qa };
+    if (!card.urgent && !hasRoom(state, a.id.validation)) return { state, result: 'blocked', toCol: a.id.qa };
     let s = moveCard(state, cardId, a.id.validation);
     s.cards[cardId].bug = false;
     return { state: s, result: 'passed', toCol: a.id.validation };
