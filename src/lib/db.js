@@ -345,6 +345,22 @@ export async function migrateLegacyToPartida1(createdBy) {
 export function invKey(email) {
   return 'inv_' + String(email || '').trim().toLowerCase().replace(/[.#$/[\]@]/g, '_');
 }
+/**
+ * Normaliza un email para COMPARAR identidades (no para almacenar): minúsculas,
+ * sin +tag, y en Gmail/Googlemail sin puntos en la parte local (Gmail los ignora).
+ * Así manu.fosela@gmail.com y manufosela@gmail.com se reconocen como la misma cuenta.
+ */
+export function normalizeEmail(email) {
+  const e = String(email || '').trim().toLowerCase();
+  const at = e.indexOf('@');
+  if (at < 0) return e;
+  let local = e.slice(0, at).split('+')[0];
+  const domain = e.slice(at + 1);
+  if (domain === 'gmail.com' || domain === 'googlemail.com') {
+    return `${local.replace(/\./g, '')}@gmail.com`;
+  }
+  return `${local}@${domain}`;
+}
 export function watchInvited(cb) {
   return onValue(ref(db, 'invitedUsers'), (s) => cb(toList(s.val())));
 }

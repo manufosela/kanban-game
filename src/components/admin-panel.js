@@ -3,7 +3,7 @@ import {
   watchUsers, watchTeams, watchBoards, watchInvited, watchBots,
   setUserRole, createTeam, renameTeam, deleteTeam,
   renameBoard, setBoardColumns, assignToTeam, unassignFromTeam,
-  addInvited, deleteInvited, setInvitedAssignment,
+  addInvited, deleteInvited, setInvitedAssignment, normalizeEmail,
   setUserDefaultRole, setInvitedRole,
   isBotId, addBotToTeam, removeBotFromTeam, setBotRole, getBoard,
   watchPartidas, createPartida, renamePartida, deletePartida,
@@ -272,6 +272,8 @@ export class AdminPanel extends LitElement {
     // Usuarios con cuenta que no están en ningún equipo: disponibles para añadir a esta partida.
     const assigned = this.assignedAnywhere();
     const freeUsers = this.users.filter((u) => !assigned.has(u.id));
+    // Emails (normalizados) de usuarios reales: para detectar pre-registros redundantes.
+    const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
     return html`
       <div class="card stack">
         <h3 style="margin:0">Pre-registrar personas por email</h3>
@@ -293,16 +295,21 @@ export class AdminPanel extends LitElement {
                 <td>${this.teamNameOf(u.id) ? html`<span class="tag">${this.teamNameOf(u.id)}</span>` : html`<span class="muted">sin equipo</span>`}</td>
                 <td><button class="btn-sm" @click=${() => this.toggleAdmin(u)}>${u.role === 'admin' ? 'Quitar admin' : 'Hacer admin'}</button></td>
               </tr>`)}
-            ${pInvited.map((iv) => html`
+            ${pInvited.map((iv) => {
+              const dup = realNorms.has(normalizeEmail(iv.email));
+              return html`
               <tr>
                 <td>✉️</td>
                 <td>${iv.name || '—'}</td>
                 <td class="muted">${iv.email}</td>
                 <td>${this.roleSelect(iv.role, (v) => setInvitedRole(iv.id, v))}</td>
-                <td><span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span></td>
+                <td>${dup
+                  ? html`<span class="tag" style="background:#5a1d1d;color:#ffd7d7" title="Esta persona ya tiene cuenta con un correo equivalente; este pre-registro sobra">ya tiene cuenta</span>`
+                  : html`<span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span>`}</td>
                 <td>${iv.teamId ? html`<span class="tag">${this.pTeams.find((t) => t.id === iv.teamId)?.name || iv.teamId}</span>` : html`<span class="muted">sin equipo</span>`}</td>
                 <td><button class="btn-sm btn-danger" @click=${() => this.removeInvited(iv)}>Eliminar</button></td>
-              </tr>`)}
+              </tr>`;
+            })}
           </tbody>
         </table>
         ${partidaUsers.length === 0 && pInvited.length === 0 ? html`<p class="empty-state">Aún no hay personas en esta partida. Pre-regístralas por email arriba.</p>` : ''}
@@ -376,13 +383,14 @@ export class AdminPanel extends LitElement {
     if (parsed.length === 0) return toast('No se reconoció ningún correo válido', 'warning');
     // El pre-registro se indexa por email. Distinguimos: usuario real ya existente,
     // ya pre-registrado en esta partida, ya en otra partida, o nuevo.
-    const userByEmail = new Map(this.users.map((u) => [(u.email || '').toLowerCase(), u]));
-    const invByEmail = new Map(this.invited.map((i) => [i.email, i]));
+    const userByEmail = new Map(this.users.map((u) => [normalizeEmail(u.email), u]));
+    const invByEmail = new Map(this.invited.map((i) => [normalizeEmail(i.email), i]));
     let added = 0;
     const haveAccount = []; const inThis = []; const inOther = [];
     for (const { email, name } of parsed) {
-      const u = userByEmail.get(email);
-      const iv = invByEmail.get(email);
+      const norm = normalizeEmail(email);
+      const u = userByEmail.get(norm);
+      const iv = invByEmail.get(norm);
       if (u) { haveAccount.push(u.name || email); continue; }
       if (iv) { (iv.partidaId === this.currentPartidaId ? inThis : inOther).push(name); continue; }
       await addInvited(email, name, this.currentPartidaId); added += 1;
@@ -532,11 +540,13 @@ export class AdminPanel extends LitElement {
   }
   openAddPeople(t) {
     // Candidatos: invitados de ESTA partida sin equipo + usuarios reales libres (sin equipo en ninguna partida).
+    // Se excluyen los pendientes que ya tienen cuenta real (mismo email normalizado): evita duplicados.
     const assigned = this.assignedAnywhere();
+    const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
     const roleOrder = { PM: 0, DEV: 1, QA: 2, '': 3 };
     const cands = [
       ...this.users.filter((u) => !assigned.has(u.id)).map((u) => ({ id: u.id, label: u.name || u.email, sub: (u.name && u.email) ? u.email : '', invited: false, role: u.defaultRole || '' })),
-      ...this.pInvited.filter((iv) => !iv.teamId).map((iv) => ({ id: iv.id, label: iv.name || iv.email, sub: iv.email, invited: true, role: iv.role || '' })),
+      ...this.pInvited.filter((iv) => !iv.teamId && !realNorms.has(normalizeEmail(iv.email))).map((iv) => ({ id: iv.id, label: iv.name || iv.email, sub: iv.email, invited: true, role: iv.role || '' })),
     ].sort((a, b) => (roleOrder[a.role] - roleOrder[b.role]) || a.label.localeCompare(b.label));
     const wrap = document.createElement('div');
     if (cands.length === 0) {
