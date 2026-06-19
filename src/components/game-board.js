@@ -28,6 +28,7 @@ export class GameBoard extends LitElement {
     bots: { state: true },
     autoBots: { state: true },
     botDelayMs: { state: true },
+    flash: { state: true },
     selectedCardId: { state: true },
     devAction: { state: true },
     pairPartner: { state: true },
@@ -42,6 +43,7 @@ export class GameBoard extends LitElement {
     this.bots = [];
     this.autoBots = true;
     this.botDelayMs = Number(localStorage.getItem('kbg.botDelayMs')) || 1500;
+    this.flash = null;
     this.selectedCardId = null;
     this.devAction = 'advance';
     this.pairPartner = null;
@@ -69,7 +71,46 @@ export class GameBoard extends LitElement {
   }
 
   // ---- Bots dirigidos por cliente ----
-  updated() { this.maybeDriveBots(); }
+  updated() {
+    this.maybeDriveBots();
+    this.animateMoves();
+    this.detectFlash();
+  }
+  /** Anima (FLIP) las historias que han cambiado de posición desde el último render. */
+  animateMoves() {
+    const nodes = this.querySelectorAll('.postit[data-cid]');
+    const pos = new Map();
+    nodes.forEach((n) => pos.set(n.dataset.cid, n.getBoundingClientRect()));
+    if (this._prevPos) {
+      nodes.forEach((n) => {
+        const prev = this._prevPos.get(n.dataset.cid);
+        if (!prev) return;
+        const cur = pos.get(n.dataset.cid);
+        const dx = prev.left - cur.left; const dy = prev.top - cur.top;
+        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+          n.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 480, easing: 'cubic-bezier(.2,.7,.3,1)' });
+        }
+      });
+    }
+    this._prevPos = pos;
+  }
+  /** Muestra un banner con la última jugada del registro durante unos segundos. */
+  detectFlash() {
+    const log = this.game?.log || [];
+    const len = log.length;
+    if (this._lastLogLen == null) { this._lastLogLen = len; return; }
+    if (len > this._lastLogLen) {
+      const last = log[len - 1];
+      this._lastLogLen = len;
+      if (last && last.text) {
+        this.flash = last.text;
+        clearTimeout(this._flashT);
+        this._flashT = setTimeout(() => { this.flash = null; }, 3500);
+      }
+    } else {
+      this._lastLogLen = len;
+    }
+  }
   currentBotActor() {
     const g = this.game; if (!g) return null;
     const ra = g.roleAssignments || {};
@@ -138,6 +179,7 @@ export class GameBoard extends LitElement {
     if (!this.game) return this.renderNoGame();
     return html`
       ${this.renderTopBar()}
+      ${this.flash ? html`<div class="playflash">🎲 ${this.flash}</div>` : ''}
       <div class="playarea">
         <div class="playmain">
           ${this.renderColumns()}
@@ -367,6 +409,7 @@ export class GameBoard extends LitElement {
     const selected = this.selectedCardId === card.id;
     return html`
       <div class="postit ${card.bug ? 'bug' : ''} ${selected ? 'sel' : ''} ${selectable ? 'pick' : ''}"
+           data-cid=${card.id}
            @click=${() => { if (selectable) this.selectedCardId = selected ? null : card.id; }}>
         <span class="num">#${card.number}</span>
         ${card.bug ? html`<span class="bugmark" title="Tiene un bug">🐞</span>` : ''}
@@ -540,6 +583,9 @@ export class GameBoard extends LitElement {
       kbg-game { display: block; max-width: 1380px; margin: 0 auto; padding: 16px; }
       kbg-game .playarea { display: grid; grid-template-columns: 1fr; gap: 14px; align-items: start; }
       kbg-game .playmain { min-width: 0; }
+      kbg-game .playflash { margin: 0 0 12px; padding: 10px 16px; border-radius: 8px; background: #14304a; border-left: 4px solid var(--c-primary); font-size: 1.05rem; font-weight: 600; animation: kbgFlashIn .25s ease; }
+      @keyframes kbgFlashIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+      kbg-game .postit { transition: box-shadow .2s; }
       kbg-game .topbar { display: grid; grid-template-columns: 1.4fr 1fr 1.4fr; gap: 16px; align-items: center; margin-bottom: 14px; }
       kbg-game .status { text-align: center; }
       kbg-game .status .turn { font-size: 1.1rem; }
