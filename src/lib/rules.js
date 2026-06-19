@@ -296,6 +296,17 @@ export function doneTotal(state) {
   return countInColumn(state.cards, a.id.done);
 }
 
+/** Suma de una propiedad numérica de las historias en Done (p.ej. 'business' o 'dev'). */
+export function doneSum(state, prop) {
+  const cols = orderedColumns(state.columns);
+  const a = anchors(cols);
+  return cardsInColumn(state.cards, a.id.done).reduce((sum, c) => sum + (Number(c[prop]) || 0), 0);
+}
+/** Valor de negocio entregado (suma de puntos de negocio en Done). */
+export function doneBusiness(state) { return doneSum(state, 'business'); }
+/** Esfuerzo de desarrollo entregado (suma de Fibonacci en Done). */
+export function doneDev(state) { return doneSum(state, 'dev'); }
+
 /** Snapshot de métricas del turno: conteo por columna + total Done. */
 export function turnSnapshot(state) {
   const cols = orderedColumns(state.columns);
