@@ -263,7 +263,7 @@ function actingDev(s, a) {
 }
 /** ¿La historia `cardId` está vetada por haber una Urgent en curso? (solo se puede trabajar la Urgent). */
 function urgentBlocks(s, cardId) {
-  return R.urgentActive(s) && !s.cards?.[cardId]?.urgent;
+  return !!cardId && R.urgentActive(s) && !s.cards?.[cardId]?.urgent;
 }
 /** Quita los candados de carta de los Devs indicados. */
 function clearDevClaims(s, uids) {
@@ -516,8 +516,8 @@ export function botAction(state) {
     if (reviewCards.length) {
       return { type: 'dev-review', cardId: reviewCards[0].id, dice: rollDie(), dev: cur, expect: { step } };
     }
-    // Nada útil que hacer: gasta su acción sin mover (no bloquea a los humanos).
-    return { type: 'dev-advance', cardId: null, dice: rollDie(), dev: cur, expect: { step } };
+    // Nada útil que hacer (WIP lleno, todo cogido, o solo queda Urgent ajena): pasa.
+    return { type: 'dev-pass', dev: cur, expect: { step } };
   }
   return null;
 }

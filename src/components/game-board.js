@@ -141,18 +141,22 @@ export class GameBoard extends LitElement {
     return null;
   }
   maybeDriveBots() {
-    if (!this.autoBots || !this.isMod || this._botTimer) return;
+    // Cualquier cliente con el tablero abierto puede mover los bots. La transacción y el
+    // control de "ya actuó" evitan que un bot actúe dos veces si hay varios clientes.
+    if (!this.autoBots || this._botTimer) return;
     const g = this.game;
     if (!g || g.status !== 'playing') return;
     if (!this.currentBotActor()) return;
+    // Pequeño jitter para que, con varios clientes, no disparen exactamente a la vez.
+    const delay = this.botDelayMs + Math.floor(Math.random() * 250);
     this._botTimer = setTimeout(() => {
       this._botTimer = null;
-      if (!this.autoBots || !this.isMod) return;
+      if (!this.autoBots) return;
       const g2 = this.game;
       if (!g2 || g2.status !== 'playing' || !this.currentBotActor()) return;
       const action = botAction(g2);
       if (action) this.act(action.type, action);
-    }, this.botDelayMs);
+    }, delay);
   }
   setBotDelay(ms) {
     this.botDelayMs = ms;
