@@ -269,6 +269,9 @@ export class AdminPanel extends LitElement {
     const memberIds = this.partidaUserIds();
     const partidaUsers = this.users.filter((u) => memberIds.has(u.id));
     const pInvited = this.pInvited;
+    // Usuarios con cuenta que no están en ningún equipo: disponibles para añadir a esta partida.
+    const assigned = this.assignedAnywhere();
+    const freeUsers = this.users.filter((u) => !assigned.has(u.id));
     return html`
       <div class="card stack">
         <h3 style="margin:0">Pre-registrar personas por email</h3>
@@ -304,8 +307,51 @@ export class AdminPanel extends LitElement {
         </table>
         ${partidaUsers.length === 0 && pInvited.length === 0 ? html`<p class="empty-state">Aún no hay personas en esta partida. Pre-regístralas por email arriba.</p>` : ''}
       </div>
+      ${freeUsers.length ? html`
+        <div class="card stack" style="margin-top:12px">
+          <h3 style="margin:0">Con cuenta, sin asignar</h3>
+          <p class="muted" style="margin:0">Personas que ya han iniciado sesión pero no están en ningún equipo. No necesitan pre-registro: añádelas directamente a un equipo de esta partida.</p>
+          <table class="t">
+            <thead><tr><th>Nombre</th><th>Email</th><th></th></tr></thead>
+            <tbody>
+              ${freeUsers.map((u) => html`
+                <tr>
+                  <td>${u.name || '—'} ${u.role === 'admin' ? html`<span class="tag admin">admin</span>` : ''}</td>
+                  <td class="muted">${u.email || ''}</td>
+                  <td><button class="btn-sm btn-primary" @click=${() => this.openAssignToTeam(u)}>➕ Añadir a equipo</button></td>
+                </tr>`)}
+            </tbody>
+          </table>
+        </div>` : ''}
       ${this.tableStyles()}
     `;
+  }
+  /** Modal para asignar un usuario real (con cuenta) a un equipo de la partida con un rol. */
+  openAssignToTeam(u) {
+    const teams = this.pTeams;
+    if (teams.length === 0) return toast('Crea un equipo primero en «Equipos y tableros»', 'warning');
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<p class="muted">Añadir a <strong>${u.name || u.email}</strong> a un equipo de esta partida:</p>`;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; gap:8px; margin-top:8px';
+    const teamSel = document.createElement('select');
+    teamSel.innerHTML = teams.map((t) => `<option value="${t.id}">${t.name}</option>`).join('');
+    const roleSel = document.createElement('select');
+    roleSel.innerHTML = ROLES.map((r) => `<option value="${r}" ${r === 'DEV' ? 'selected' : ''}>${r}</option>`).join('');
+    row.append(teamSel, roleSel);
+    wrap.appendChild(row);
+    modal(wrap, {
+      title: 'Añadir a un equipo',
+      actions: [
+        { label: 'Cancelar', onClick: (c) => c() },
+        { label: 'Añadir', variant: 'primary', onClick: async (c) => {
+          const t = this.teams.find((x) => x.id === teamSel.value);
+          if (t) await assignToTeam(t, u.id, roleSel.value);
+          c();
+          if (t) toast(`${u.name || u.email} → ${t.name} (${roleSel.value})`, 'success');
+        } },
+      ],
+    });
   }
   /** Parsea "Nombre Apellido <correo>, correo2, ..." -> [{email, name}] (nombre = correo si no hay). */
   parseInvited(raw) {
@@ -328,12 +374,26 @@ export class AdminPanel extends LitElement {
     const raw = this.querySelector('#invEmails').value || '';
     const parsed = this.parseInvited(raw);
     if (parsed.length === 0) return toast('No se reconoció ningún correo válido', 'warning');
-    // El pre-registro se indexa por email (global); evita duplicar a quien ya esté como usuario o invitado.
-    const existing = new Set([...this.users.map((u) => (u.email || '').toLowerCase()), ...this.invited.map((i) => i.email)]);
+    // El pre-registro se indexa por email. Distinguimos: usuario real ya existente,
+    // ya pre-registrado en esta partida, ya en otra partida, o nuevo.
+    const userByEmail = new Map(this.users.map((u) => [(u.email || '').toLowerCase(), u]));
+    const invByEmail = new Map(this.invited.map((i) => [i.email, i]));
     let added = 0;
-    for (const { email, name } of parsed) { if (!existing.has(email)) { await addInvited(email, name, this.currentPartidaId); added++; } }
+    const haveAccount = []; const inThis = []; const inOther = [];
+    for (const { email, name } of parsed) {
+      const u = userByEmail.get(email);
+      const iv = invByEmail.get(email);
+      if (u) { haveAccount.push(u.name || email); continue; }
+      if (iv) { (iv.partidaId === this.currentPartidaId ? inThis : inOther).push(name); continue; }
+      await addInvited(email, name, this.currentPartidaId); added += 1;
+    }
     this.querySelector('#invEmails').value = '';
-    toast(added ? `${added} persona(s) pre-registrada(s) en esta partida` : 'Ya estaban todas pre-registradas', added ? 'success' : 'info');
+    const parts = [];
+    if (added) parts.push(`${added} pre-registrada(s)`);
+    if (haveAccount.length) parts.push(`${haveAccount.length} ya tienen cuenta (${haveAccount.join(', ')}): añádelas a un equipo en «Con cuenta, sin asignar»`);
+    if (inThis.length) parts.push(`${inThis.length} ya estaban en esta partida`);
+    if (inOther.length) parts.push(`${inOther.length} ya pre-registrada(s) en otra partida`);
+    toast(parts.join(' · ') || 'Sin cambios', added ? 'success' : 'info', 8000);
   }
   async removeInvited(iv) {
     if (await confirmDialog(`¿Eliminar el pre-registro de ${iv.email}?`, { title: 'Eliminar pendiente', danger: true })) {
