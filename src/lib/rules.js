@@ -51,6 +51,31 @@ export function priorityOf(card) {
 export function needsPair(card) {
   return !!card && card.dev > PAIR_FIB_OVER;
 }
+/** Cuenta roles (PM/DEV/QA) de un mapa de asignaciones (incluye bots). */
+export function countRoles(roleAssignments) {
+  const c = { PM: 0, DEV: 0, QA: 0 };
+  for (const r of Object.values(roleAssignments || {})) if (c[r] != null) c[r] += 1;
+  return c;
+}
+/**
+ * WIP sugerido por columna según el equipo (capacidad): Desarrollo = nº devs,
+ * Revisión PR ≈ mitad de devs, QA = nº QA, Refinement/Validación = PM+1.
+ * Backlog y Done no se limitan. Devuelve { colId: wip }.
+ */
+export function suggestedWipByAnchor(columns, roleAssignments) {
+  const a = anchors(orderedColumns(columns));
+  const c = countRoles(roleAssignments);
+  const dev = Math.max(1, c.DEV);
+  const qa = Math.max(1, c.QA);
+  const pm = Math.max(1, c.PM);
+  return {
+    [a.id.analysis]: pm + 1,
+    [a.id.devReturn]: dev,
+    [a.id.review]: Math.max(1, Math.ceil(dev / 2)),
+    [a.id.qa]: qa,
+    [a.id.validation]: pm + 1,
+  };
+}
 /** ¿Hay alguna historia Urgent en curso (no terminada)? Bloquea el desarrollo normal. */
 export function urgentActive(state) {
   const a = anchors(orderedColumns(state.columns));

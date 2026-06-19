@@ -40,6 +40,15 @@ export async function startGame(board, { wipEnabled = false, rondas = 2, ciclos 
   const cols = R.orderedColumns(board.columns).map((c, i) => ({
     id: c.id, name: c.name, order: i, wipLimit: c.wipLimit ?? null,
   }));
+  // Con WIP: ajusta los límites a la capacidad del equipo (nº por rol).
+  if (wipEnabled) {
+    const wip = R.suggestedWipByAnchor(cols, board.roleAssignments || {});
+    const updates = {};
+    cols.forEach((c) => {
+      if (wip[c.id] != null) { c.wipLimit = wip[c.id]; updates[`boards/${board.id}/columns/${c.id}/wipLimit`] = wip[c.id]; }
+    });
+    if (Object.keys(updates).length) await update(ref(db), updates);
+  }
   const M = Math.max(1, Number(rondas) || 1);
   const N = Math.max(1, Number(ciclos) || 1);
   const limitMin = Number(timeLimitMinutes) > 0 ? Number(timeLimitMinutes) : null;

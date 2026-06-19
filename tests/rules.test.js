@@ -269,3 +269,15 @@ describe('Urgent (expedite)', () => {
     expect(normal).toBeDefined();
   });
 });
+
+describe('WIP por equipo', () => {
+  it('cuenta roles (incluye varios)', () => {
+    expect(R.countRoles({ a: 'DEV', b: 'DEV', c: 'QA', d: 'PM' })).toEqual({ PM: 1, DEV: 2, QA: 1 });
+  });
+  it('sugiere WIP de Desarrollo = nº de devs y QA = nº de QA', () => {
+    const s = buildState();
+    const wip = R.suggestedWipByAnchor(s.columns, { a: 'DEV', b: 'DEV', c: 'DEV', d: 'QA', e: 'PM' });
+    expect(wip[ID.desarrollo]).toBe(3);
+    expect(wip[ID.qa]).toBe(1);
+  });
+});
