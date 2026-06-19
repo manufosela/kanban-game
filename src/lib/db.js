@@ -385,17 +385,23 @@ export async function setInvitedAssignment(key, teamId, role) {
  */
 export async function claimInvitedOnLogin(user) {
   if (!user?.email) return false;
-  const key = invKey(user.email);
-  const snap = await get(ref(db, `invitedUsers/${key}`));
-  if (!snap.exists()) return false;
-  const inv = snap.val();
-  if (inv.teamId) {
+  const norm = normalizeEmail(user.email);
+  const allSnap = await get(ref(db, 'invitedUsers'));
+  const all = allSnap.val() || {};
+  // Coincidencias por email normalizado (cubre variantes de Gmail con puntos/+tag).
+  const matches = Object.entries(all).filter(([, iv]) => normalizeEmail(iv.email) === norm);
+  if (matches.length === 0) return false;
+  // Si algún pre-registro tenía equipo asignado, materialízalo en el usuario real.
+  const withTeam = matches.find(([, iv]) => iv.teamId);
+  if (withTeam) {
+    const inv = withTeam[1];
     const ts = await get(ref(db, `teams/${inv.teamId}`));
-    if (ts.exists()) {
-      await assignToTeam({ id: inv.teamId, ...ts.val() }, user.uid, inv.role || 'DEV');
-    }
+    if (ts.exists()) await assignToTeam({ id: inv.teamId, ...ts.val() }, user.uid, inv.role || 'DEV');
   }
-  await remove(ref(db, `invitedUsers/${key}`));
+  // Elimina todos los pre-registros equivalentes (ya tiene cuenta).
+  const updates = {};
+  for (const [k] of matches) updates[`invitedUsers/${k}`] = null;
+  await update(ref(db), updates);
   return true;
 }
 
@@ -407,4 +413,26 @@ export async function getBoard(boardId) {
 export async function getTeam(teamId) {
   const s = await get(ref(db, `teams/${teamId}`));
   return s.exists() ? { id: teamId, ...s.val() } : null;
+}
+
+/** Suscripción al propio registro de usuario (para deslogar si lo borran). */
+export function watchUser(uid, cb) {
+  return onValue(ref(db, `users/${uid}`), (s) => cb(s.exists() ? { id: uid, ...s.val() } : null));
+}
+
+/** Expulsa a un usuario: lo saca de todos sus equipos y borra su registro. */
+export async function removeUser(uid) {
+  const teamsSnap = await get(ref(db, 'teams'));
+  const teams = teamsSnap.val() || {};
+  const updates = {};
+  for (const [tid, t] of Object.entries(teams)) {
+    if (t.members && t.members[uid] != null) {
+      updates[`teams/${tid}/members/${uid}`] = null;
+      for (const bid of [t.boardNoWip, t.boardWip].filter(Boolean)) {
+        updates[`boards/${bid}/roleAssignments/${uid}`] = null;
+      }
+    }
+  }
+  updates[`users/${uid}`] = null;
+  await update(ref(db), updates);
 }
