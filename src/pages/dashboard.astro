@@ -15,8 +15,18 @@ import Layout from '../layouts/Layout.astro';
         <p>Todavía no estás en ninguna partida.</p>
         <p class="muted" id="emptyHint"></p>
       </div>
+      <div id="rules" hidden style="margin-top:24px"></div>
     </div>
   </div>
+
+  <style>
+    #rules .rule-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    #rules .rule-panel { display: none; }
+    #rules .rule-panel.active { display: block; }
+    #rules ul { margin: 6px 0; padding-left: 20px; }
+    #rules li { margin: 5px 0; }
+    #rules ol { margin: 6px 0; padding-left: 22px; }
+  </style>
 
   <script>
     import { requireAuth } from '../lib/session.js';
@@ -49,6 +59,9 @@ import Layout from '../layouts/Layout.astro';
         return;
       }
       empty.hidden = true;
+
+      const myRole = mine[0]?.roleAssignments?.[user.uid] || null;
+      renderRules(myRole);
 
       // Una partida = el equipo del jugador con sus 2 tableros (sin/con WIP). Agrupar por equipo.
       const groups = {};
@@ -100,6 +113,81 @@ import Layout from '../layouts/Layout.astro';
 
     function escapeHtml(s) {
       return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    let rulesDone = false;
+    function renderRules(myRole) {
+      if (rulesDone) return;
+      rulesDone = true;
+      const host = document.getElementById('rules');
+      host.hidden = false;
+
+      const panels = {
+        general: `
+          <h3>Cómo funciona</h3>
+          <ul>
+            <li>🎯 <strong>Objetivo:</strong> llevar el máximo de historias hasta <strong>Done</strong>.</li>
+            <li>🗂️ Una partida son <strong>2 tableros</strong> del mismo equipo: primero <strong>sin límite WIP</strong> y luego <strong>con límite WIP</strong>. Al final se comparan.</li>
+            <li>🎲 El <strong>dado</strong> decide cuánto avanza cada cosa. Entrarás al tablero cuando el facilitador inicie.</li>
+            <li>⛔ Con WIP: si la columna destino está llena, la historia <strong>no entra</strong> aunque el dado sea alto.</li>
+          </ul>
+          <h3>Los 5 pasos de cada turno (en orden)</h3>
+          <ol>
+            <li>El <strong>PM</strong> mete 3 historias en <strong>Backlog</strong>.</li>
+            <li>El <strong>PM</strong> tira 1 dado y mueve esa cantidad de <strong>Backlog → Análisis</strong>.</li>
+            <li>Los <strong>Devs</strong> actúan (una acción por Dev).</li>
+            <li><strong>QA</strong> prueba las historias.</li>
+            <li>El <strong>PM</strong> valida: <strong>Validación PM → Done</strong> (cierra el turno).</li>
+          </ol>`,
+        PM: `
+          <h3>Tu rol: PM (Product Manager)</h3>
+          <ul>
+            <li><strong>Paso 1:</strong> metes <strong>3 historias</strong> nuevas en Backlog.</li>
+            <li><strong>Paso 2:</strong> tiras <strong>1 dado</strong> y mueves esa cantidad de <strong>Backlog → Análisis</strong>.</li>
+            <li><strong>Paso 5:</strong> tiras <strong>1 dado</strong> y validas esa cantidad de <strong>Validación PM → Done</strong> (cierra el turno).</li>
+          </ul>`,
+        DEV: `
+          <h3>Tu rol: DEV (Desarrollo)</h3>
+          <ul>
+            <li>En tu turno tiras <strong>1 dado</strong> por una historia:</li>
+            <li>&nbsp;&nbsp;• <strong>3 o más</strong> → avanza a la siguiente columna (Análisis → Desarrollo → Revisión PR).</li>
+            <li>&nbsp;&nbsp;• <strong>1 o 2</strong> → no avanza este turno.</li>
+            <li><strong>Revisar PR:</strong> con 3+, pasa una historia de <strong>Revisión PR → QA</strong>.</li>
+            <li>Una acción por Dev y turno.</li>
+          </ul>`,
+        QA: `
+          <h3>Tu rol: QA</h3>
+          <ul>
+            <li>Pruebas historias de la columna <strong>QA</strong> (máx. <strong>2 tiradas</strong> por turno).</li>
+            <li><strong>3 o más</strong> → pasa a <strong>Validación PM</strong>.</li>
+            <li><strong>1 o 2</strong> → ¡<strong>bug</strong>! vuelve a <strong>Desarrollo</strong>.</li>
+          </ul>`,
+      };
+
+      const tabs = [
+        { id: 'general', label: '📖 Reglas generales' },
+        { id: 'PM', label: '🧭 PM' },
+        { id: 'DEV', label: '💻 DEV' },
+        { id: 'QA', label: '🔎 QA' },
+      ];
+      const active = (myRole && panels[myRole]) ? myRole : 'general';
+
+      host.innerHTML = `
+        <div class="card stack">
+          <h2 style="margin:0">Reglas del juego</h2>
+          <div class="rule-tabs">
+            ${tabs.map((t) => `<button class="${t.id === active ? 'btn-primary' : ''}" data-tab="${t.id}">${t.label}</button>`).join('')}
+          </div>
+          ${tabs.map((t) => `<div class="rule-panel ${t.id === active ? 'active' : ''}" data-panel="${t.id}">${panels[t.id]}</div>`).join('')}
+        </div>`;
+
+      host.querySelectorAll('[data-tab]').forEach((btn) => {
+        btn.onclick = () => {
+          const id = btn.getAttribute('data-tab');
+          host.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('btn-primary', b === btn));
+          host.querySelectorAll('[data-panel]').forEach((p) => p.classList.toggle('active', p.getAttribute('data-panel') === id));
+        };
+      });
     }
   </script>
 </Layout>
