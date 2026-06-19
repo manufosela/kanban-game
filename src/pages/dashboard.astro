@@ -7,12 +7,12 @@ import Layout from '../layouts/Layout.astro';
     <div class="page-loading" id="loading"><span class="spinner"></span> Cargando…</div>
     <div id="content" hidden>
       <div class="flex-between">
-        <h1>Mis tableros</h1>
+        <h1>Mis partidas</h1>
         <a class="btn btn-primary" id="adminLink" href="/admin" hidden>+ Administración</a>
       </div>
       <div id="boards" class="grid grid-2" style="margin-top:16px"></div>
       <div id="empty" class="empty-state" hidden>
-        <p>Todavía no tienes ningún tablero asignado.</p>
+        <p>Todavía no estás en ninguna partida.</p>
         <p class="muted" id="emptyHint"></p>
       </div>
     </div>
@@ -20,10 +20,7 @@ import Layout from '../layouts/Layout.astro';
 
   <script>
     import { requireAuth } from '../lib/session.js';
-    import { watchBoards, watchTeams } from '../lib/db.js';
-
-    const ROUND_LABEL = { 1: 'Ronda 1 · sin WIP', 2: 'Ronda 2 · con WIP' };
-    const STATUS_LABEL = { setup: 'En preparación', playing: 'En juego', finished: 'Terminada' };
+    import { watchBoards, watchTeams, watchPartidas } from '../lib/db.js';
 
     const { user, profile } = await requireAuth();
     const isAdmin = profile?.role === 'admin';
@@ -32,12 +29,10 @@ import Layout from '../layouts/Layout.astro';
     if (isAdmin) document.getElementById('adminLink').hidden = false;
 
     let teams = {};
-    watchTeams((list) => {
-      teams = Object.fromEntries(list.map((t) => [t.id, t]));
-      render();
-    });
-
+    let partidas = {};
     let boards = [];
+    watchTeams((list) => { teams = Object.fromEntries(list.map((t) => [t.id, t])); render(); });
+    watchPartidas((list) => { partidas = Object.fromEntries(list.map((p) => [p.id, p])); render(); });
     watchBoards((list) => { boards = list; render(); });
 
     function render() {
@@ -49,33 +44,56 @@ import Layout from '../layouts/Layout.astro';
         host.innerHTML = '';
         empty.hidden = false;
         document.getElementById('emptyHint').textContent = isAdmin
-          ? 'Crea equipos y tableros en Administración para empezar.'
-          : 'Pide a tu administrador que te asigne a un tablero.';
+          ? 'Crea equipos y asígnate (o usa Administración).'
+          : 'El facilitador te incluirá en un equipo en breve.';
         return;
       }
       empty.hidden = true;
 
-      host.innerHTML = mine.map((b) => {
-        const role = b.roleAssignments?.[user.uid];
-        const team = teams[b.teamId]?.name || '—';
-        const nCols = b.columns ? Object.keys(b.columns).length : 0;
+      // Una partida = el equipo del jugador con sus 2 tableros (sin/con WIP). Agrupar por equipo.
+      const groups = {};
+      for (const b of mine) {
+        (groups[b.teamId] = groups[b.teamId] || []).push(b);
+      }
+
+      // Si una de mis partidas está EN JUEGO, entrar automáticamente la primera vez.
+      const playing = mine.find((b) => b.status === 'playing');
+      if (playing && !sessionStorage.getItem('kbg.entered.' + playing.id)) {
+        sessionStorage.setItem('kbg.entered.' + playing.id, '1');
+        window.location.href = '/board?id=' + playing.id;
+        return;
+      }
+
+      host.innerHTML = Object.values(groups).map((bs) => {
+        const team = teams[bs[0].teamId]?.name || 'Tu equipo';
+        const partidaName = partidas[bs[0].partidaId]?.name || '';
+        const role = bs[0].roleAssignments?.[user.uid];
+        const active = bs.find((b) => b.status === 'playing');
+        const finished = bs.filter((b) => b.status === 'finished');
+
+        let state; let actions;
+        if (active) {
+          state = '<span class="tag" style="background:#1f3a2a;color:#9ff0c0">🟢 En juego</span>';
+          actions = `<a class="btn btn-primary btn-lg" href="/board?id=${active.id}">▶ Entrar a la partida</a>`;
+        } else if (finished.length === bs.length && bs.length > 0) {
+          state = '<span class="tag">🏁 Terminada</span>';
+          actions = `<a class="btn" href="/results?id=${bs[0].id}">📊 Ver resultados</a>`;
+        } else {
+          state = '<span class="tag" style="background:#3a3416;color:#ffe08a">⏳ En preparación</span>';
+          actions = `<p class="muted" style="margin:0">Prepárate: el facilitador iniciará la partida cuando estéis todos. Entrarás al tablero automáticamente.</p>${finished.length ? `<a class="btn btn-sm" href="/results?id=${finished[0].id}">📊 Resultados</a>` : ''}`;
+        }
+
         return `
           <div class="card stack">
             <div class="flex-between">
-              <h2 style="margin:0">${escapeHtml(b.name)}</h2>
-              <span class="tag">${STATUS_LABEL[b.status] || b.status || ''}</span>
+              <h2 style="margin:0">${escapeHtml(partidaName || team)}</h2>
+              ${state}
             </div>
             <div class="row" style="gap:8px">
               <span class="tag">👥 ${escapeHtml(team)}</span>
-              <span class="tag">🧩 ${nCols} columnas</span>
-              <span class="tag">${ROUND_LABEL[b.round] || ''}</span>
-              ${role ? `<span class="tag role-${role}">Tu rol: ${role}</span>` : (isAdmin ? '<span class="tag admin">admin</span>' : '')}
+              ${role ? `<span class="tag role-${role}">Tu rol: ${role}</span>` : ''}
             </div>
-            <div class="row">
-              <a class="btn btn-primary" href="/board?id=${b.id}">▶ Jugar</a>
-              <a class="btn" href="/results?id=${b.id}">📊 Resultados</a>
-              ${isAdmin ? `<a class="btn btn-ghost" href="/admin?board=${b.id}">⚙ Configurar</a>` : ''}
-            </div>
+            <div class="row">${actions}</div>
           </div>`;
       }).join('');
     }
