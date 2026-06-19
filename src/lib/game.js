@@ -490,8 +490,10 @@ export function botAction(state) {
   if (step === STEP.DEVS) {
     const acted = state.devActed || {};
     const isBot = (u) => typeof u === 'string' && u.startsWith('bot_');
-    const cur = (state.devOrder || []).find((u) => !acted[u] && isBot(u));
-    if (!cur) return null; // no hay bot pendiente; que actúen los humanos
+    const pending = (state.devOrder || []).filter((u) => !acted[u]);
+    if (pending.some((u) => !isBot(u))) return null; // los bots esperan a que actúen los humanos
+    const cur = pending.find((u) => isBot(u));
+    if (!cur) return null; // no hay bot pendiente
     const claims = state.claims || {};
     const free = (c) => !claims[c.id] || claims[c.id] === cur;
     const blocked = R.urgentActive(state); // si hay Urgent, solo se trabaja la Urgent
