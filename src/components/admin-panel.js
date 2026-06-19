@@ -258,22 +258,27 @@ export class AdminPanel extends LitElement {
     const t = this.pTeams.find((x) => x.members && x.members[uid]);
     return t ? `${t.name} · ${t.members[uid]}` : null;
   }
-  roleSelect(current, onChange) {
-    return html`<select @change=${(e) => onChange(e.target.value || null)}>
-      <option value="" ?selected=${!current}>—</option>
-      ${ROLES.map((r) => html`<option value=${r} ?selected=${current === r}>${r}</option>`)}
-    </select>`;
+  /** Construye la lista unificada de personas de la partida (miembros + pendientes + libres con cuenta). */
+  peopleRows() {
+    const memberIds = this.partidaUserIds();
+    const assigned = this.assignedAnywhere();
+    const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
+    const teamOf = (uid) => this.pTeams.find((t) => t.members && t.members[uid] != null);
+    const rows = [];
+    this.users.filter((u) => memberIds.has(u.id)).forEach((u) => {
+      const t = teamOf(u.id);
+      rows.push({ kind: 'member', id: u.id, name: u.name || u.email, email: u.email, photoURL: u.photoURL, role: (t && t.members[u.id]) || '', team: t, isAdmin: u.role === 'admin' });
+    });
+    this.pInvited.forEach((iv) => {
+      rows.push({ kind: 'invited', id: iv.id, name: iv.name || iv.email, email: iv.email, role: iv.role || '', teamId: iv.teamId, dup: realNorms.has(normalizeEmail(iv.email)) });
+    });
+    this.users.filter((u) => !assigned.has(u.id)).forEach((u) => {
+      rows.push({ kind: 'free', id: u.id, name: u.name || u.email, email: u.email, photoURL: u.photoURL, role: u.defaultRole || '', isAdmin: u.role === 'admin' });
+    });
+    return rows;
   }
   renderPeople() {
-    // Reales de ESTA partida (miembros de sus equipos) + invitados pre-registrados en ella.
-    const memberIds = this.partidaUserIds();
-    const partidaUsers = this.users.filter((u) => memberIds.has(u.id));
-    const pInvited = this.pInvited;
-    // Usuarios con cuenta que no están en ningún equipo: disponibles para añadir a esta partida.
-    const assigned = this.assignedAnywhere();
-    const freeUsers = this.users.filter((u) => !assigned.has(u.id));
-    // Emails (normalizados) de usuarios reales: para detectar pre-registros redundantes.
-    const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
+    const rows = this.peopleRows();
     return html`
       <div class="card stack">
         <h3 style="margin:0">Pre-registrar personas por email</h3>
@@ -282,69 +287,82 @@ export class AdminPanel extends LitElement {
         <div><button class="btn-primary" @click=${() => this.addInvitedEmails()}>+ Añadir personas</button></div>
       </div>
       <div class="card" style="margin-top:12px">
+        <p class="muted" style="margin:0 0 8px">Personas de esta partida. Asigna <strong>rol</strong> y <strong>equipo</strong> a cada una. <em>Pendiente</em> = aún no ha entrado; <em>con cuenta</em> = ya ha entrado; <em>ya tiene cuenta</em> = pre-registro que sobra (elimínalo).</p>
         <table class="t">
-          <thead><tr><th></th><th>Nombre</th><th>Email</th><th>Rol real</th><th>Estado</th><th>Equipo</th><th></th></tr></thead>
+          <thead><tr><th></th><th>Nombre</th><th>Email</th><th>Rol</th><th>Estado</th><th>Equipo</th><th></th></tr></thead>
           <tbody>
-            ${partidaUsers.map((u) => html`
-              <tr>
-                <td>${u.photoURL ? html`<img class="avatar" src=${u.photoURL} referrerpolicy="no-referrer" alt="">` : '👤'}</td>
-                <td>${u.name || '—'}</td>
-                <td class="muted">${u.email || ''}</td>
-                <td>${this.roleSelect(u.defaultRole, (v) => setUserDefaultRole(u.id, v))}</td>
-                <td>${u.role === 'admin' ? html`<span class="tag admin">admin</span>` : html`<span class="tag">jugador</span>`}</td>
-                <td>${this.teamNameOf(u.id) ? html`<span class="tag">${this.teamNameOf(u.id)}</span>` : html`<span class="muted">sin equipo</span>`}</td>
-                <td><button class="btn-sm" @click=${() => this.toggleAdmin(u)}>${u.role === 'admin' ? 'Quitar admin' : 'Hacer admin'}</button></td>
-              </tr>`)}
-            ${pInvited.map((iv) => {
-              const dup = realNorms.has(normalizeEmail(iv.email));
-              return html`
-              <tr>
-                <td>✉️</td>
-                <td>${iv.name || '—'}</td>
-                <td class="muted">${iv.email}</td>
-                <td>${this.roleSelect(iv.role, (v) => setInvitedRole(iv.id, v))}</td>
-                <td>${dup
-                  ? html`<span class="tag" style="background:#5a1d1d;color:#ffd7d7" title="Esta persona ya tiene cuenta con un correo equivalente; este pre-registro sobra">ya tiene cuenta</span>`
-                  : html`<span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span>`}</td>
-                <td>${iv.teamId ? html`<span class="tag">${this.pTeams.find((t) => t.id === iv.teamId)?.name || iv.teamId}</span>` : html`<span class="muted">sin equipo</span>`}</td>
-                <td><button class="btn-sm btn-danger" @click=${() => this.removeInvited(iv)}>Eliminar</button></td>
-              </tr>`;
-            })}
+            ${rows.length === 0 ? html`<tr><td colspan="7"><span class="muted">Aún no hay personas. Pre-regístralas por email arriba o pídeles que entren con Google.</span></td></tr>` : ''}
+            ${rows.map((r) => this.renderPersonRow(r))}
           </tbody>
         </table>
-        ${partidaUsers.length === 0 && pInvited.length === 0 ? html`<p class="empty-state">Aún no hay personas en esta partida. Pre-regístralas por email arriba.</p>` : ''}
       </div>
-      ${freeUsers.length ? html`
-        <div class="card stack" style="margin-top:12px">
-          <h3 style="margin:0">Con cuenta, sin asignar</h3>
-          <p class="muted" style="margin:0">Personas que ya han iniciado sesión pero no están en ningún equipo. No necesitan pre-registro: añádelas directamente a un equipo de esta partida.</p>
-          <table class="t">
-            <thead><tr><th>Nombre</th><th>Email</th><th></th></tr></thead>
-            <tbody>
-              ${freeUsers.map((u) => html`
-                <tr>
-                  <td>${u.name || '—'} ${u.role === 'admin' ? html`<span class="tag admin">admin</span>` : ''}</td>
-                  <td class="muted">${u.email || ''}</td>
-                  <td><button class="btn-sm btn-primary" @click=${() => this.openAssignToTeam(u)}>➕ Añadir a equipo</button></td>
-                </tr>`)}
-            </tbody>
-          </table>
-        </div>` : ''}
       ${this.tableStyles()}
     `;
   }
-  /** Modal para asignar un usuario real (con cuenta) a un equipo de la partida con un rol. */
-  openAssignToTeam(u) {
+  renderPersonRow(r) {
+    const icon = r.kind === 'invited' ? '✉️' : (r.photoURL ? html`<img class="avatar" src=${r.photoURL} referrerpolicy="no-referrer" alt="">` : '👤');
+    const estado = r.kind === 'member'
+      ? (r.isAdmin ? html`<span class="tag admin">admin</span>` : html`<span class="tag" style="background:#1f3a2a;color:#9ff0c0">en equipo</span>`)
+      : r.kind === 'free'
+        ? (r.isAdmin ? html`<span class="tag admin">admin</span>` : html`<span class="tag">con cuenta</span>`)
+        : (r.dup
+          ? html`<span class="tag" style="background:#5a1d1d;color:#ffd7d7" title="Ya existe una cuenta con un correo equivalente; este pre-registro sobra">ya tiene cuenta</span>`
+          : html`<span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span>`);
+    let teamCell;
+    if (r.kind === 'member') {
+      teamCell = html`<span class="tag">${r.team?.name || '—'}</span> <button class="btn-sm btn-danger" @click=${() => this.removeFromTeam(r)}>Quitar</button>`;
+    } else if (r.kind === 'invited' && r.teamId) {
+      teamCell = html`<span class="tag">${this.pTeams.find((t) => t.id === r.teamId)?.name || r.teamId}</span> <button class="btn-sm" @click=${() => setInvitedAssignment(r.id, null, r.role || null)}>Quitar</button>`;
+    } else {
+      teamCell = html`<button class="btn-sm btn-primary" @click=${() => this.openAssignToTeam(r)}>➕ Añadir a equipo</button>`;
+    }
+    const action = r.kind === 'invited'
+      ? html`<button class="btn-sm btn-danger" @click=${() => this.removeInvited({ id: r.id, email: r.email })}>Eliminar</button>`
+      : html`<button class="btn-sm" @click=${() => this.toggleAdmin({ id: r.id, role: r.isAdmin ? 'admin' : 'player', name: r.name, email: r.email })}>${r.isAdmin ? 'Quitar admin' : 'Hacer admin'}</button>`;
+    return html`
+      <tr>
+        <td>${icon}</td>
+        <td>${r.name || '—'}</td>
+        <td class="muted">${r.email || ''}</td>
+        <td>${this.personRoleSelect(r)}</td>
+        <td>${estado}</td>
+        <td>${teamCell}</td>
+        <td>${action}</td>
+      </tr>`;
+  }
+  personRoleSelect(r) {
+    return html`<select @change=${(e) => this.setRowRole(r, e.target.value || null)}>
+      <option value="" ?selected=${!r.role}>—</option>
+      ${ROLES.map((role) => html`<option value=${role} ?selected=${r.role === role}>${role}</option>`)}
+    </select>`;
+  }
+  async setRowRole(r, role) {
+    if (r.kind === 'member') {
+      if (!role || !r.team) return; // un miembro siempre conserva un rol
+      await assignToTeam(r.team, r.id, role);
+    } else if (r.kind === 'invited') {
+      if (r.teamId) await setInvitedAssignment(r.id, r.teamId, role);
+      else await setInvitedRole(r.id, role);
+    } else {
+      await setUserDefaultRole(r.id, role);
+    }
+  }
+  async removeFromTeam(r) {
+    await unassignFromTeam(r.team, r.id);
+    toast(`${r.name} fuera del equipo`, 'info');
+  }
+  /** Modal para asignar una persona (usuario real o pendiente) a un equipo con un rol. */
+  openAssignToTeam(person) {
     const teams = this.pTeams;
     if (teams.length === 0) return toast('Crea un equipo primero en «Equipos y tableros»', 'warning');
     const wrap = document.createElement('div');
-    wrap.innerHTML = `<p class="muted">Añadir a <strong>${u.name || u.email}</strong> a un equipo de esta partida:</p>`;
+    wrap.innerHTML = `<p class="muted">Añadir a <strong>${person.name || person.email}</strong> a un equipo de esta partida:</p>`;
     const row = document.createElement('div');
     row.style.cssText = 'display:flex; gap:8px; margin-top:8px';
     const teamSel = document.createElement('select');
     teamSel.innerHTML = teams.map((t) => `<option value="${t.id}">${t.name}</option>`).join('');
     const roleSel = document.createElement('select');
-    roleSel.innerHTML = ROLES.map((r) => `<option value="${r}" ${r === 'DEV' ? 'selected' : ''}>${r}</option>`).join('');
+    roleSel.innerHTML = ROLES.map((r) => `<option value="${r}" ${(person.role || 'DEV') === r ? 'selected' : ''}>${r}</option>`).join('');
     row.append(teamSel, roleSel);
     wrap.appendChild(row);
     modal(wrap, {
@@ -352,10 +370,11 @@ export class AdminPanel extends LitElement {
       actions: [
         { label: 'Cancelar', onClick: (c) => c() },
         { label: 'Añadir', variant: 'primary', onClick: async (c) => {
-          const t = this.teams.find((x) => x.id === teamSel.value);
-          if (t) await assignToTeam(t, u.id, roleSel.value);
+          const tid = teamSel.value; const role = roleSel.value;
+          if (person.kind === 'invited') await setInvitedAssignment(person.id, tid, role);
+          else { const t = this.teams.find((x) => x.id === tid); if (t) await assignToTeam(t, person.id, role); }
           c();
-          if (t) toast(`${u.name || u.email} → ${t.name} (${roleSel.value})`, 'success');
+          toast(`${person.name || person.email} → ${this.teams.find((x) => x.id === tid)?.name} (${role})`, 'success');
         } },
       ],
     });
