@@ -134,11 +134,13 @@ export class GameBoard extends LitElement {
       const qas = withRole('QA'); return (qas.length && qas.every(isBotId)) ? qas[0] : null;
     }
     if (g.step === STEP.DEVS) {
-      // Los bots actúan DESPUÉS de que todos los Devs humanos hayan actuado.
+      // Los bots actúan cuando cada Dev humano ya ha COGIDO una tarea (o ya actuó);
+      // así los humanos eligen primero y los bots cogen lo que quede.
       const acted = g.devActed || {};
-      const pending = (g.devOrder || []).filter((u) => !acted[u]);
-      if (pending.some((u) => !isBotId(u))) return null; // aún quedan humanos por actuar
-      return pending.find((u) => isBotId(u)) || null;
+      const claimed = new Set(Object.values(g.claims || {}));
+      const humanChoosing = (g.devOrder || []).some((u) => !isBotId(u) && !acted[u] && !claimed.has(u));
+      if (humanChoosing) return null;
+      return (g.devOrder || []).filter((u) => !acted[u]).find((u) => isBotId(u)) || null;
     }
     return null;
   }
