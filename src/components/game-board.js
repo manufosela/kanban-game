@@ -62,6 +62,7 @@ export class GameBoard extends LitElement {
     super.disconnectedCallback();
     this._wb?.(); this._wg?.(); this._wu?.(); this._wf?.(); this._wbots?.();
     if (this._botTimer) { clearTimeout(this._botTimer); this._botTimer = null; }
+    this._ghostLayer?.remove(); this._ghostLayer = null;
   }
 
   nameOf(uid) {
@@ -92,12 +93,34 @@ export class GameBoard extends LitElement {
     }
     this._prevPos = pos;
   }
-  /** Crea un clon en position:fixed (sin recorte) y lo desliza de `from` a `to` como un drag&drop. */
+  /** Capa recortada al área del tablero donde vuelan los fantasmas (no se desbordan sobre los controles). */
+  ghostLayer() {
+    const board = this.querySelector('.board-scroll');
+    if (!board) return null;
+    const r = board.getBoundingClientRect();
+    let layer = this._ghostLayer;
+    if (!layer || !layer.isConnected) {
+      layer = document.createElement('div');
+      layer.style.cssText = 'position:fixed; overflow:hidden; pointer-events:none; z-index:40;';
+      document.body.appendChild(layer);
+      this._ghostLayer = layer;
+    }
+    layer.style.left = `${r.left}px`;
+    layer.style.top = `${r.top}px`;
+    layer.style.width = `${r.width}px`;
+    layer.style.height = `${r.height}px`;
+    this._ghostLayerRect = r;
+    return layer;
+  }
+  /** Clona la historia y la desliza de `from` a `to` (drag&drop), recortada al tablero. */
   flyGhost(node, from, to) {
+    const layer = this.ghostLayer();
+    if (!layer) return;
+    const lr = this._ghostLayerRect;
     const ghost = node.cloneNode(true);
     ghost.classList.add('ghost');
-    ghost.style.cssText = `position:fixed; left:${from.left}px; top:${from.top}px; width:${from.width}px; height:${from.height}px; margin:0; z-index:9999; pointer-events:none;`;
-    document.body.appendChild(ghost);
+    ghost.style.cssText = `position:absolute; left:${from.left - lr.left}px; top:${from.top - lr.top}px; width:${from.width}px; height:${from.height}px; margin:0; pointer-events:none;`;
+    layer.appendChild(ghost);
     node.style.visibility = 'hidden';
     const anim = ghost.animate([
       { transform: 'translate(0,0) scale(1.06)', boxShadow: '0 10px 24px rgba(0,0,0,.45)' },
