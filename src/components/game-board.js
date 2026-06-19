@@ -204,7 +204,7 @@ export class GameBoard extends LitElement {
     return html`
       ${this.renderTopBar()}
       ${R.urgentActive(this.game) ? html`<div class="urgent-banner">🔥 Historia <strong>URGENT</strong> en curso: el desarrollo normal está en pausa hasta sacarla.</div>` : ''}
-      ${this.flash ? html`<div class="playflash">🎲 ${this.flash}</div>` : ''}
+      <div class="playflash ${this.flash ? '' : 'empty'}">${this.flash ? html`🎲 ${this.flash}` : html`&nbsp;`}</div>
       <div class="playarea">
         <div class="playmain">
           ${this.renderColumns()}
@@ -689,6 +689,7 @@ export class GameBoard extends LitElement {
         50% { box-shadow: 0 0 0 6px rgba(255,46,138,.28), 0 0 30px rgba(255,46,138,.50); }
       }
       kbg-game .playflash { margin: 0 0 12px; padding: 10px 16px; border-radius: 8px; background: #14304a; border-left: 4px solid var(--c-primary); font-size: 1.05rem; font-weight: 600; animation: kbgFlashIn .25s ease; }
+      kbg-game .playflash.empty { visibility: hidden; animation: none; }
       @keyframes kbgFlashIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
       kbg-game .postit { transition: box-shadow .2s; }
       kbg-game .topbar { display: grid; grid-template-columns: 1.4fr 1fr 1.4fr; gap: 16px; align-items: center; margin-bottom: 14px; }
