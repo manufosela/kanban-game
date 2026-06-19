@@ -134,29 +134,28 @@ export class GameBoard extends LitElement {
       const qas = withRole('QA'); return (qas.length && qas.every(isBotId)) ? qas[0] : null;
     }
     if (g.step === STEP.DEVS) {
-      // Cualquier bot Dev pendiente (juego concurrente), no solo el "de turno".
+      // Los bots actúan DESPUÉS de que todos los Devs humanos hayan actuado.
       const acted = g.devActed || {};
-      return (g.devOrder || []).find((u) => !acted[u] && isBotId(u)) || null;
+      const pending = (g.devOrder || []).filter((u) => !acted[u]);
+      if (pending.some((u) => !isBotId(u))) return null; // aún quedan humanos por actuar
+      return pending.find((u) => isBotId(u)) || null;
     }
     return null;
   }
   maybeDriveBots() {
-    // Cualquier cliente con el tablero abierto puede mover los bots. La transacción y el
-    // control de "ya actuó" evitan que un bot actúe dos veces si hay varios clientes.
-    if (!this.autoBots || this._botTimer) return;
+    // Los bots son autónomos: los conduce el navegador del moderador (nadie "juega" por ellos).
+    if (!this.autoBots || !this.isMod || this._botTimer) return;
     const g = this.game;
     if (!g || g.status !== 'playing') return;
     if (!this.currentBotActor()) return;
-    // Pequeño jitter para que, con varios clientes, no disparen exactamente a la vez.
-    const delay = this.botDelayMs + Math.floor(Math.random() * 250);
     this._botTimer = setTimeout(() => {
       this._botTimer = null;
-      if (!this.autoBots) return;
+      if (!this.autoBots || !this.isMod) return;
       const g2 = this.game;
       if (!g2 || g2.status !== 'playing' || !this.currentBotActor()) return;
       const action = botAction(g2);
       if (action) this.act(action.type, action);
-    }, delay);
+    }, this.botDelayMs);
   }
   setBotDelay(ms) {
     this.botDelayMs = ms;
