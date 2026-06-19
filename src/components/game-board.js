@@ -674,7 +674,7 @@ export class GameBoard extends LitElement {
     const log = (this.game.log || []).slice(-12).reverse();
     return html`<div class="logfeed card">
       <h3 style="margin:0 0 8px">Registro</h3>
-      ${log.length === 0 ? html`<p class="muted">Sin eventos aún.</p>` : html`<ul>${log.map((l) => html`<li><span class="muted">T${l.turn ?? '·'}</span> ${l.text}</li>`)}</ul>`}
+      ${log.length === 0 ? html`<p class="muted">Sin eventos aún.</p>` : html`<ul>${log.map((l) => html`<li><span class="muted">T${l.turn ?? '·'}</span> ${l.by ? html`<strong>${this.nameOf(l.by)}</strong> ` : ''}${l.text}</li>`)}</ul>`}
     </div>`;
   }
 

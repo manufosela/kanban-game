@@ -135,9 +135,9 @@ export function roundInfo(state) {
   };
 }
 
-function pushLog(state, text) {
+function pushLog(state, text, by) {
   const log = Array.isArray(state.log) ? state.log : [];
-  state.log = [...log, { t: Date.now(), turn: state.turn, step: state.step, text }].slice(-60);
+  state.log = [...log, { t: Date.now(), turn: state.turn, step: state.step, text, by: by || null }].slice(-60);
 }
 
 function setDice(state, kind, values, by) {
@@ -333,11 +333,11 @@ const HANDLERS = {
     if (R.needsPair(s.cards?.[a.cardId])) return { msg: 'Esa historia (Fibonacci > 8) debe hacerse en pair.' };
     const dice = a.dice;
     setDice(s, 'dev-advance', dice, dev);
-    if (!R.diceAdvances(dice)) pushLog(s, `Dev saca ${dice}: la historia no avanza.`);
+    if (!R.diceAdvances(dice)) pushLog(s, `saca ${dice}: la historia no avanza.`, dev);
     else {
       const out = R.devAdvance(s, a.cardId);
-      if (out.ok) { s.cards = out.state.cards; pushLog(s, `Dev saca ${dice}: la historia #${num(s, a.cardId)} avanza.`); }
-      else pushLog(s, `Dev saca ${dice} pero no puede avanzar (${reason(out.reason)}).`);
+      if (out.ok) { s.cards = out.state.cards; pushLog(s, `saca ${dice}: la historia #${num(s, a.cardId)} avanza.`, dev); }
+      else pushLog(s, `saca ${dice} pero no puede avanzar (${reason(out.reason)}).`, dev);
     }
     markDevActed(s, [dev]);
     return {};
@@ -352,11 +352,11 @@ const HANDLERS = {
     if ((s.claims?.[a.cardId]) && s.claims[a.cardId] !== dev) return { msg: 'Esa historia la tiene otro Dev.' };
     const dice = a.dice;
     setDice(s, 'dev-review', dice, dev);
-    if (!R.diceAdvances(dice)) pushLog(s, `Revisión de PR: saca ${dice}, no se completa.`);
+    if (!R.diceAdvances(dice)) pushLog(s, `revisa un PR y saca ${dice}: no se completa.`, dev);
     else {
       const out = R.devReview(s, a.cardId);
-      if (out.ok) { s.cards = out.state.cards; pushLog(s, `Revisión de PR (${dice}): la historia #${num(s, a.cardId)} pasa a QA.`); }
-      else pushLog(s, `Revisión de PR (${dice}) pero no puede mover (${reason(out.reason)}).`);
+      if (out.ok) { s.cards = out.state.cards; pushLog(s, `revisa un PR (${dice}): la historia #${num(s, a.cardId)} pasa a QA.`, dev); }
+      else pushLog(s, `revisa un PR (${dice}) pero no puede mover (${reason(out.reason)}).`, dev);
     }
     markDevActed(s, [dev]);
     return {};
@@ -373,11 +373,11 @@ const HANDLERS = {
     if (!devIsPending(s, partner) || partner === dev) return { msg: 'Hace falta otro Dev disponible para el pair.' };
     const [d1, d2] = a.dice;
     setDice(s, 'dev-pair', [d1, d2], dev);
-    if (!R.pairAdvances(d1, d2)) pushLog(s, `Pair: ${d1}+${d2}=${d1 + d2}, no avanza.`);
+    if (!R.pairAdvances(d1, d2)) pushLog(s, `en pair saca ${d1}+${d2}=${d1 + d2}: no avanza.`, dev);
     else {
       const out = R.devAdvance(s, a.cardId);
-      if (out.ok) { s.cards = out.state.cards; pushLog(s, `Pair (${d1}+${d2}=${d1 + d2}): la historia #${num(s, a.cardId)} avanza.`); }
-      else pushLog(s, `Pair (${d1}+${d2}) pero no puede avanzar (${reason(out.reason)}).`);
+      if (out.ok) { s.cards = out.state.cards; pushLog(s, `en pair (${d1}+${d2}=${d1 + d2}): la historia #${num(s, a.cardId)} avanza.`, dev); }
+      else pushLog(s, `en pair (${d1}+${d2}) pero no puede avanzar (${reason(out.reason)}).`, dev);
     }
     markDevActed(s, [dev, partner]);
     return {};
@@ -396,7 +396,7 @@ const HANDLERS = {
     if (s.step !== STEP.DEVS) return {};
     const dev = actingDev(s, a);
     if (!devIsPending(s, dev)) return {};
-    pushLog(s, 'Un Dev pasa (nada que hacer este turno).');
+    pushLog(s, 'pasa (nada que hacer este turno).', dev);
     markDevActed(s, [dev]);
     return {};
   },
