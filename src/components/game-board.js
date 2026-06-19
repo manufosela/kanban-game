@@ -76,7 +76,7 @@ export class GameBoard extends LitElement {
     this.animateMoves();
     this.detectFlash();
   }
-  /** Anima (FLIP) las historias que han cambiado de posición desde el último render. */
+  /** Anima las historias que han cambiado de posición con un "fantasma" que vuela por encima. */
   animateMoves() {
     const nodes = this.querySelectorAll('.postit[data-cid]');
     const pos = new Map();
@@ -86,13 +86,25 @@ export class GameBoard extends LitElement {
         const prev = this._prevPos.get(n.dataset.cid);
         if (!prev) return;
         const cur = pos.get(n.dataset.cid);
-        const dx = prev.left - cur.left; const dy = prev.top - cur.top;
-        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
-          n.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 480, easing: 'cubic-bezier(.2,.7,.3,1)' });
-        }
+        if (Math.abs(prev.left - cur.left) < 2 && Math.abs(prev.top - cur.top) < 2) return;
+        this.flyGhost(n, prev, cur);
       });
     }
     this._prevPos = pos;
+  }
+  /** Crea un clon en position:fixed (sin recorte) y lo desliza de `from` a `to` como un drag&drop. */
+  flyGhost(node, from, to) {
+    const ghost = node.cloneNode(true);
+    ghost.classList.add('ghost');
+    ghost.style.cssText = `position:fixed; left:${from.left}px; top:${from.top}px; width:${from.width}px; height:${from.height}px; margin:0; z-index:9999; pointer-events:none;`;
+    document.body.appendChild(ghost);
+    node.style.visibility = 'hidden';
+    const anim = ghost.animate([
+      { transform: 'translate(0,0) scale(1.06)', boxShadow: '0 10px 24px rgba(0,0,0,.45)' },
+      { transform: `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(1)`, boxShadow: '0 2px 6px rgba(0,0,0,.3)' },
+    ], { duration: 520, easing: 'cubic-bezier(.35,.9,.25,1)' });
+    anim.onfinish = () => { ghost.remove(); node.style.visibility = ''; };
+    anim.oncancel = () => { ghost.remove(); node.style.visibility = ''; };
   }
   /** Muestra un banner con la última jugada del registro durante unos segundos. */
   detectFlash() {
@@ -389,7 +401,10 @@ export class GameBoard extends LitElement {
       <div class="board-scroll">
         <div class="board" style="grid-template-columns: repeat(${cols.length}, minmax(150px, 1fr))">
           ${cols.map((c, i) => {
-            const cards = R.cardsInColumn(g.cards, c.id);
+            // Mostrar por prioridad (mayor primero); las no estimadas mantienen su orden por número.
+            const cards = R.cardsInColumn(g.cards, c.id)
+              .slice()
+              .sort((x, y) => (R.priorityOf(y) - R.priorityOf(x)) || (x.number - y.number));
             const limit = R.wipLimitFor(g, c.id);
             const hasLimit = limit !== Infinity;
             const over = hasLimit && cards.length > limit;
@@ -571,7 +586,9 @@ export class GameBoard extends LitElement {
     const isNoWip = this.board?.mode === 'nowip';
     return html`<div class="controls card center stack">
       <h2 style="margin:0">🏁 Ronda ${this.game.round} terminada</h2>
-      <p>Total de historias en <strong>Done</strong>: <strong style="font-size:1.4rem">${R.doneTotal(this.game)}</strong></p>
+      <p>En <strong>Done</strong>: <strong style="font-size:1.4rem">${R.doneTotal(this.game)}</strong> historias ·
+         💼 <strong>${R.doneBusiness(this.game)}</strong> valor de negocio ·
+         🔧 <strong>${R.doneDev(this.game)}</strong> esfuerzo dev</p>
       <div class="row" style="justify-content:center; flex-wrap:wrap">
         <a class="btn btn-primary" href="/results?id=${this.boardId}">📊 Ver resultados y gráficas</a>
         ${this.isMod && isNoWip ? html`<button class="btn" @click=${() => this.startWipAndOpen()}>▶ Iniciar ronda CON WIP y abrir</button>` : ''}

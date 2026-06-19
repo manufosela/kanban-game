@@ -234,3 +234,15 @@ describe('puntuación de historias', () => {
     }
   });
 });
+
+describe('totales entregados en Done', () => {
+  it('suma negocio y dev de las historias en Done', () => {
+    const s = buildState();
+    putCard(s, 'a', 1, ID.done); s.cards.a.business = 3; s.cards.a.dev = 5;
+    putCard(s, 'b', 2, ID.done); s.cards.b.business = 2; s.cards.b.dev = 8;
+    putCard(s, 'c', 3, ID.desarrollo); s.cards.c.business = 4; s.cards.c.dev = 2;
+    expect(R.doneTotal(s)).toBe(2);
+    expect(R.doneBusiness(s)).toBe(5);
+    expect(R.doneDev(s)).toBe(13);
+  });
+});

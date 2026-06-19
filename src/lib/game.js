@@ -180,6 +180,8 @@ export async function archiveResults(boardId, state) {
     columns: state.columns,
     snapshots: state.snapshots || {},
     doneTotal: R.doneTotal(state),
+    doneBusiness: R.doneBusiness(state),
+    doneDev: R.doneDev(state),
     durationSec,
     finishedAt: Date.now(),
   });

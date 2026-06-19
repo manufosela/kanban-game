@@ -93,6 +93,8 @@ export class ResultsView extends LitElement {
           <h2 style="margin:0">Partida ${g.wipEnabled ? 'con WIP' : 'sin WIP'} ${g.status === 'finished' ? '(terminada)' : `(ciclo ${g.turn}/${g.totalCycles || '?'})`}</h2>
           <div class="row">
             <span class="tag">✅ Done: <strong>${R.doneTotal(g)}</strong></span>
+            <span class="tag">💼 Negocio: <strong>${R.doneBusiness(g)}</strong></span>
+            <span class="tag">🔧 Dev: <strong>${R.doneDev(g)}</strong></span>
             ${bn ? html`<span class="tag role-QA">🍶 Cuello de botella: ${bn.name}</span>` : ''}
           </div>
         </div>
@@ -119,7 +121,9 @@ export class ResultsView extends LitElement {
               ${data.map((r) => html`<th>${r.wipEnabled ? 'Con WIP' : 'Sin WIP'}<br><span class="muted">ronda ${r.round}</span></th>`)}
             </tr></thead>
             <tbody>
-              <tr><td>Total en Done</td>${data.map((r) => html`<td class=${r.doneTotal === maxDone ? 'pos' : ''}><strong>${r.doneTotal}</strong></td>`)}</tr>
+              <tr><td>Historias en Done</td>${data.map((r) => html`<td class=${r.doneTotal === maxDone ? 'pos' : ''}><strong>${r.doneTotal}</strong></td>`)}</tr>
+              <tr><td>💼 Valor de negocio</td>${data.map((r) => html`<td>${r.doneBusiness ?? '—'}</td>`)}</tr>
+              <tr><td>🔧 Esfuerzo dev</td>${data.map((r) => html`<td>${r.doneDev ?? '—'}</td>`)}</tr>
               <tr><td>Cuello de botella</td>${data.map((r) => html`<td>${r.bn?.name || '—'}</td>`)}</tr>
               <tr><td>Duración</td>${data.map((r) => html`<td>${this.fmtDur(r.durationSec)}</td>`)}</tr>
             </tbody>
