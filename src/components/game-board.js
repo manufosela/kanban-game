@@ -305,7 +305,7 @@ export class GameBoard extends LitElement {
         const toId = R.nextColumnId(g, sel.col);
         if (!R.advanceSources(g).includes(sel.col)) { blocked = true; msg = `#${sel.number} no puede avanzar desde ${name(sel.col)}.`; }
         else if (wip && !R.hasRoom(g, toId)) { blocked = true; msg = `#${sel.number}: ${name(toId)} llena (${roomTxt(toId)}); no avanzará aunque el dado lo permita.`; }
-        else msg = `#${sel.number}: ${name(sel.col)} → ${name(toId)} (si ${this.devAction === 'pair' ? 'la suma es 5+' : 'el dado es 3+'}).`;
+        else msg = `#${sel.number}: ${name(sel.col)} → ${name(toId)} (si el dado es 3+).`;
       }
     } else if (g.step === STEP.QA) {
       const sel = this.selectedCardId ? g.cards[this.selectedCardId] : null;
@@ -424,8 +424,6 @@ export class GameBoard extends LitElement {
   ctrlDevs() {
     const g = this.game;
     const a = this.anchors();
-    const order = g.devOrder || [];
-    const acted = g.devActed || {};
     const cur = this.currentDevUid;
     const canFinish = this.isMod || this.myGameRole === 'PM';
 
@@ -437,53 +435,41 @@ export class GameBoard extends LitElement {
       </div>`;
     }
 
-    const sel = this.selectedCardId ? g.cards[this.selectedCardId] : null;
-    const inAdvance = sel && R.advanceSources(g).includes(sel.col);
-    const inReview = sel && sel.col === a.id.review;
-    const action = this.devAction;
-    const needTwo = action === 'pair';
-    const pendingPartners = order.filter((u) => !acted[u] && u !== cur);
-    const validForAction = ((action === 'advance' || action === 'pair') && inAdvance) || (action === 'review' && inReview);
-    const pairOk = action !== 'pair' || (this.pairPartner && pendingPartners.includes(this.pairPartner));
+    // Historias válidas por acción.
+    const advanceCards = R.advanceSources(g).flatMap((colId) => R.cardsInColumn(g.cards, colId));
+    const reviewCards = R.cardsInColumn(g.cards, a.id.review);
+    const hasReview = reviewCards.length > 0;
+    // Si «Revisar PR» no tiene tarjetas, se fuerza a «Avanzar».
+    const action = (this.devAction === 'review' && hasReview) ? 'review' : 'advance';
+    const cards = action === 'review' ? reviewCards : advanceCards;
+    // Historia a usar: la seleccionada en el tablero si es válida; si no, la primera disponible.
+    const selValid = this.selectedCardId && cards.some((c) => c.id === this.selectedCardId);
+    const useCard = selValid ? g.cards[this.selectedCardId] : (cards[0] || null);
     return html`<div class="controls card stack">
-      <p><strong>Te toca${cur && cur !== this.me?.uid ? ` (accionas por ${this.nameOf(cur)})` : ''}.</strong> Elige una opción y tira:</p>
+      <p><strong>Te toca${cur && cur !== this.me?.uid ? ` (accionas por ${this.nameOf(cur)})` : ''}.</strong> Tira el dado para ${action === 'review' ? 'pasar un PR a QA' : 'avanzar una historia'}.</p>
       ${this.renderDevRoster()}
-      <div class="row">
-        ${this.devOpt('advance', 'Avanzar (1 dado, 3+)')}
-        ${this.devOpt('review', 'Revisar PR (1 dado, 3+)')}
-        ${this.devOpt('pair', 'Pair (2 dados, 5+)')}
-      </div>
-      ${action === 'pair' ? html`
-        <div class="row" style="gap:8px">
-          <label style="margin:0">Compañero:</label>
-          <select @change=${(e) => { this.pairPartner = e.target.value || null; }}>
-            <option value="" ?selected=${!this.pairPartner}>— elige Dev —</option>
-            ${pendingPartners.map((u) => html`<option value=${u} ?selected=${this.pairPartner === u}>${this.nameOf(u)}</option>`)}
-          </select>
-          ${pendingPartners.length === 0 ? html`<span class="muted">No hay otro Dev pendiente para pair.</span>` : ''}
-        </div>` : ''}
+      ${hasReview ? html`<div class="row">
+        ${this.devOpt('advance', 'Avanzar (dado 3+)')}
+        ${this.devOpt('review', 'Revisar PR (dado 3+)')}
+      </div>` : ''}
       <p class="muted" style="margin:0">
-        ${sel ? html`Seleccionada: <strong>#${sel.number}</strong>` : 'Selecciona una historia.'}
-        ${sel && !validForAction ? html`<span style="color:var(--c-warning)"> · esa historia no vale para esta acción.</span>` : ''}
+        ${useCard ? html`Historia <strong>#${useCard.number}</strong>. Toca otra en el tablero para cambiarla.` : 'No hay historias para esta acción ahora mismo.'}
       </p>
       <div class="row" style="gap:16px">
-        <kbg-dice count=${needTwo ? 2 : 1} label="Tirar" .disabled=${!validForAction || !pairOk}
-          @roll=${(e) => this.devRoll(e.detail.values)}></kbg-dice>
-        ${canFinish ? html`<button @click=${() => this.act('dev-finish')}>✔ Forzar cierre → QA</button>` : ''}
+        <kbg-dice count="1" label="Tirar" .disabled=${!useCard}
+          @roll=${(e) => this.devRoll(useCard, e.detail.values[0], action)}></kbg-dice>
+        ${canFinish ? html`<button @click=${() => this.act('dev-finish')}>✔ Pasar a QA</button>` : ''}
       </div>
     </div>`;
   }
   devOpt(id, label) {
     return html`<button class=${this.devAction === id ? 'btn-primary' : ''} @click=${() => { this.devAction = id; }}>${label}</button>`;
   }
-  devRoll(values) {
-    const cardId = this.selectedCardId;
-    if (!cardId) return;
-    if (this.devAction === 'advance') this.act('dev-advance', { cardId, dice: values[0] });
-    else if (this.devAction === 'review') this.act('dev-review', { cardId, dice: values[0] });
-    else if (this.devAction === 'pair') this.act('dev-pair', { cardId, dice: values, partner: this.pairPartner });
+  devRoll(card, dice, action) {
+    if (!card) return;
+    if (action === 'review') this.act('dev-review', { cardId: card.id, dice });
+    else this.act('dev-advance', { cardId: card.id, dice });
     this.selectedCardId = null;
-    this.pairPartner = null;
   }
 
   ctrlQa() {
