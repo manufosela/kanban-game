@@ -202,3 +202,35 @@ describe('métricas', () => {
     expect(b.colId).toBe(ID.desarrollo);
   });
 });
+
+describe('puntuación de historias', () => {
+  it('priorityOf = redondeo(dev/negocio*100)', () => {
+    expect(R.priorityOf({ dev: 5, business: 2 })).toBe(250);
+    expect(R.priorityOf({ dev: 3, business: 3 })).toBe(100);
+    expect(R.priorityOf({ dev: 8, business: 3 })).toBe(267);
+    expect(R.priorityOf({ dev: null, business: 3 })).toBe(0);
+  });
+  it('needsPair solo si Fibonacci > 8', () => {
+    expect(R.needsPair({ dev: 13 })).toBe(true);
+    expect(R.needsPair({ dev: 8 })).toBe(false);
+    expect(R.needsPair({ dev: 5 })).toBe(false);
+    expect(R.needsPair({ dev: null })).toBe(false);
+  });
+  it('el backlog asigna puntos de negocio 1..5 y dev nulo', () => {
+    let s = buildState();
+    s = R.addBacklogStories(s, 3);
+    for (const c of R.cardsInColumn(s.cards, ID.backlog)) {
+      expect(c.business).toBeGreaterThanOrEqual(1);
+      expect(c.business).toBeLessThanOrEqual(5);
+      expect(c.dev).toBeNull();
+    }
+  });
+  it('al entrar en Refinement asigna estimación Fibonacci', () => {
+    let s = buildState();
+    s = R.addBacklogStories(s, 3);
+    const { state } = R.pmPullToAnalysis(s, 2);
+    for (const c of R.cardsInColumn(state.cards, ID.analisis)) {
+      expect(R.FIB_DECK).toContain(c.dev);
+    }
+  });
+});

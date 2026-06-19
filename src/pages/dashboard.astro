@@ -134,7 +134,7 @@ import Layout from '../layouts/Layout.astro';
           <h3>Los 5 pasos de cada turno (en orden)</h3>
           <ol>
             <li>El <strong>PM</strong> mete 3 historias en <strong>Backlog</strong>.</li>
-            <li>El <strong>PM</strong> tira 1 dado y mueve esa cantidad de <strong>Backlog → Análisis</strong>.</li>
+            <li>El <strong>PM</strong> tira 1 dado y mueve esa cantidad de <strong>Backlog → Refinement</strong>.</li>
             <li>Los <strong>Devs</strong> actúan (una acción por Dev).</li>
             <li><strong>QA</strong> prueba las historias.</li>
             <li>El <strong>PM</strong> valida: <strong>Validación PM → Done</strong> (cierra el turno).</li>
@@ -143,14 +143,14 @@ import Layout from '../layouts/Layout.astro';
           <h3>Tu rol: PM (Product Manager)</h3>
           <ul>
             <li><strong>Paso 1:</strong> metes <strong>3 historias</strong> nuevas en Backlog.</li>
-            <li><strong>Paso 2:</strong> tiras <strong>1 dado</strong> y mueves esa cantidad de <strong>Backlog → Análisis</strong>.</li>
+            <li><strong>Paso 2:</strong> tiras <strong>1 dado</strong> y mueves esa cantidad de <strong>Backlog → Refinement</strong>.</li>
             <li><strong>Paso 5:</strong> tiras <strong>1 dado</strong> y validas esa cantidad de <strong>Validación PM → Done</strong> (cierra el turno).</li>
           </ul>`,
         DEV: `
           <h3>Tu rol: DEV (Desarrollo)</h3>
           <ul>
             <li>En tu turno tiras <strong>1 dado</strong> por una historia:</li>
-            <li>&nbsp;&nbsp;• <strong>3 o más</strong> → avanza a la siguiente columna (Análisis → Desarrollo → Revisión PR).</li>
+            <li>&nbsp;&nbsp;• <strong>3 o más</strong> → avanza a la siguiente columna (Refinement → Desarrollo → Revisión PR).</li>
             <li>&nbsp;&nbsp;• <strong>1 o 2</strong> → no avanza este turno.</li>
             <li><strong>Revisar PR:</strong> con 3+, pasa una historia de <strong>Revisión PR → QA</strong>.</li>
             <li>Una acción por Dev y turno.</li>

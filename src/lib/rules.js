@@ -28,12 +28,35 @@ export const MAX_TURNS = 10;
 export const QA_MAX_ROLLS = 2;
 export const DICE_ADVANCE_MIN = 3;
 export const PAIR_SUM_MIN = 5;
+// Puntuación de historias.
+export const BUSINESS_MIN = 1;            // puntos de negocio en Backlog: 1..5
+export const BUSINESS_MAX = 5;
+export const FIB_DECK = [1, 2, 3, 5, 8, 13]; // estimación Fibonacci al entrar en Refinement
+export const PAIR_FIB_OVER = 8;           // Fibonacci > 8 (=13) ⇒ pair obligatorio
+
+/** Puntos de negocio aleatorios (1..5). */
+export function randomBusiness() {
+  return BUSINESS_MIN + Math.floor(Math.random() * (BUSINESS_MAX - BUSINESS_MIN + 1));
+}
+/** Estimación Fibonacci aleatoria del mazo. */
+export function randomFib() {
+  return FIB_DECK[Math.floor(Math.random() * FIB_DECK.length)];
+}
+/** Prioridad de desarrollo = redondeo(dev / negocio × 100). Mayor = se coge antes. */
+export function priorityOf(card) {
+  if (!card || !card.dev || !card.business) return 0;
+  return Math.round((card.dev / card.business) * 100);
+}
+/** Una historia con Fibonacci > 8 debe desarrollarse en pair. */
+export function needsPair(card) {
+  return !!card && card.dev > PAIR_FIB_OVER;
+}
 
 /** Columnas por defecto (con límites WIP usados en la Ronda 2). */
 export function defaultColumns() {
   return [
     { name: 'Backlog', wipLimit: null },
-    { name: 'Análisis', wipLimit: 2 },
+    { name: 'Refinement', wipLimit: 2 },
     { name: 'Desarrollo', wipLimit: 3 },
     { name: 'Revisión PR', wipLimit: 2 },
     { name: 'QA', wipLimit: 2 },
@@ -141,7 +164,7 @@ export function addBacklogStories(state, n = STORIES_PER_TURN) {
   let next = s.nextNumber || 1;
   for (let i = 0; i < n; i++) {
     const id = `s${next}`;
-    s.cards[id] = { id, number: next, col: backlogId, bug: false };
+    s.cards[id] = { id, number: next, col: backlogId, bug: false, business: randomBusiness(), dev: null };
     next++;
   }
   s.nextNumber = next;
@@ -158,11 +181,16 @@ export function pmPullToAnalysis(state, dice) {
   const a = anchors(cols);
   let s = state;
   let moved = 0;
-  const backlog = cardsInColumn(s.cards, a.id.backlog);
+  // Entran en Refinement las de MAYOR puntos de negocio primero.
+  const backlog = cardsInColumn(s.cards, a.id.backlog)
+    .slice()
+    .sort((x, y) => (y.business || 0) - (x.business || 0));
   for (const card of backlog) {
     if (moved >= dice) break;
     if (!hasRoom(s, a.id.analysis)) break;
     s = moveCard(s, card.id, a.id.analysis);
+    // Estimación Fibonacci al entrar en Refinement (si no la tenía).
+    if (!s.cards[card.id].dev) s.cards[card.id].dev = randomFib();
     moved++;
   }
   return { state: s, moved };
