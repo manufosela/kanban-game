@@ -408,10 +408,12 @@ export class GameBoard extends LitElement {
     );
     const selected = this.selectedCardId === card.id;
     return html`
-      <div class="postit ${card.bug ? 'bug' : ''} ${selected ? 'sel' : ''} ${selectable ? 'pick' : ''}"
+      <div class="postit ${card.bug ? 'bug' : ''} ${selected ? 'sel' : ''} ${selectable ? 'pick' : ''} ${R.needsPair(card) ? 'big' : ''}"
            data-cid=${card.id}
            @click=${() => { if (selectable) this.selectedCardId = selected ? null : card.id; }}>
         <span class="num">#${card.number}</span>
+        ${card.business ? html`<span class="pts" title="Negocio ${card.business} · Dev ${card.dev ?? '—'}">${card.business}<span class="sep">/</span>${card.dev ?? '·'}</span>` : ''}
+        ${R.needsPair(card) ? html`<span class="pairmark" title="Fibonacci > 8: se hace en pair">👥</span>` : ''}
         ${card.bug ? html`<span class="bugmark" title="Tiene un bug">🐞</span>` : ''}
       </div>
     `;
@@ -478,29 +480,40 @@ export class GameBoard extends LitElement {
       </div>`;
     }
 
-    // Historias válidas por acción.
-    const advanceCards = R.advanceSources(g).flatMap((colId) => R.cardsInColumn(g.cards, colId));
+    // Historias válidas por acción, las de avanzar ordenadas por prioridad (mayor primero).
+    const advanceCards = R.advanceSources(g)
+      .flatMap((colId) => R.cardsInColumn(g.cards, colId))
+      .sort((x, y) => R.priorityOf(y) - R.priorityOf(x));
     const reviewCards = R.cardsInColumn(g.cards, a.id.review);
     const hasReview = reviewCards.length > 0;
     // Si «Revisar PR» no tiene tarjetas, se fuerza a «Avanzar».
     const action = (this.devAction === 'review' && hasReview) ? 'review' : 'advance';
     const cards = action === 'review' ? reviewCards : advanceCards;
-    // Historia a usar: la seleccionada en el tablero si es válida; si no, la primera disponible.
+    // Historia a usar: la seleccionada si es válida; si no, la de mayor prioridad.
     const selValid = this.selectedCardId && cards.some((c) => c.id === this.selectedCardId);
     const useCard = selValid ? g.cards[this.selectedCardId] : (cards[0] || null);
+    // Pair obligatorio si la historia (avanzar) tiene Fibonacci > 8.
+    const mustPair = action === 'advance' && R.needsPair(useCard);
+    const pending = (g.devOrder || []).filter((u) => !(g.devActed || {})[u] && u !== cur);
+    const partner = mustPair ? (pending[0] || null) : null;
+    const canRoll = !!useCard && (!mustPair || !!partner);
     return html`<div class="controls card stack">
-      <p><strong>Te toca${cur && cur !== this.me?.uid ? ` (accionas por ${this.nameOf(cur)})` : ''}.</strong> Tira el dado para ${action === 'review' ? 'pasar un PR a QA' : 'avanzar una historia'}.</p>
+      <p><strong>Te toca${cur && cur !== this.me?.uid ? ` (accionas por ${this.nameOf(cur)})` : ''}.</strong> Tira ${mustPair ? '2 dados (pair)' : 'el dado'} para ${action === 'review' ? 'pasar un PR a QA' : 'avanzar una historia'}.</p>
       ${this.renderDevRoster()}
       ${hasReview ? html`<div class="row">
         ${this.devOpt('advance', 'Avanzar (dado 3+)')}
         ${this.devOpt('review', 'Revisar PR (dado 3+)')}
       </div>` : ''}
       <p class="muted" style="margin:0">
-        ${useCard ? html`Historia <strong>#${useCard.number}</strong>. Toca otra en el tablero para cambiarla.` : 'No hay historias para esta acción ahora mismo.'}
+        ${useCard ? html`Historia <strong>#${useCard.number}</strong>${useCard.business ? html` · negocio ${useCard.business}${useCard.dev ? ` · dev ${useCard.dev}` : ''}` : ''}. Toca otra en el tablero para cambiarla.` : 'No hay historias para esta acción ahora mismo.'}
+        ${mustPair && partner ? html`<br>🔧 Grande (Fib ${useCard.dev}): se hace en <strong>pair</strong> con ${this.nameOf(partner)} (suma 5+).` : ''}
+        ${mustPair && !partner ? html`<br><span style="color:var(--c-warning)">🔧 Grande (Fib ${useCard.dev}): necesita 2 Devs disponibles. Espera o elige otra historia.</span>` : ''}
       </p>
       <div class="row" style="gap:16px">
-        <kbg-dice count="1" label="Tirar" .disabled=${!useCard}
-          @roll=${(e) => this.devRoll(useCard, e.detail.values[0], action)}></kbg-dice>
+        <kbg-dice count=${mustPair ? 2 : 1} label="Tirar" .disabled=${!canRoll}
+          @roll=${(e) => (mustPair
+            ? this.act('dev-pair', { cardId: useCard.id, dice: e.detail.values, partner })
+            : this.devRoll(useCard, e.detail.values[0], action))}></kbg-dice>
         ${canFinish ? html`<button @click=${() => this.act('dev-finish')}>✔ Pasar a QA</button>` : ''}
       </div>
     </div>`;
@@ -618,7 +631,11 @@ export class GameBoard extends LitElement {
       kbg-game .postit.pick { cursor: pointer; outline: 2px dashed transparent; }
       kbg-game .postit.pick:hover { outline-color: var(--c-primary); }
       kbg-game .postit.sel { outline: 3px solid var(--c-primary); transform: rotate(0) scale(1.06); }
-      kbg-game .postit .num { font-size: .95rem; }
+      kbg-game .postit .num { font-size: .95rem; line-height: 1; }
+      kbg-game .postit .pts { font-size: .7rem; font-weight: 700; margin-top: 3px; opacity: .85; }
+      kbg-game .postit .pts .sep { opacity: .5; margin: 0 1px; }
+      kbg-game .postit.big { outline: 2px solid #b07cff; }
+      kbg-game .postit .pairmark { position: absolute; bottom: -7px; right: -5px; font-size: .82rem; }
       kbg-game .postit .bugmark { position: absolute; top: -8px; right: -6px; font-size: .9rem; }
       kbg-game .controls { margin-top: 14px; }
       kbg-game .logfeed { margin: 0; }

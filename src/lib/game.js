@@ -6,7 +6,7 @@ import * as R from './rules.js';
 
 export const STEP = {
   PM_ADD: 1,        // PM mete 3 historias en Backlog
-  PM_PULL: 2,       // PM tira: Backlog -> Análisis
+  PM_PULL: 2,       // PM tira: Backlog -> Refinement
   DEVS: 3,          // Devs actúan (avanzar / revisar / pair)
   QA: 4,            // QA prueba (QA -> Validación / bug -> Desarrollo)
   PM_VALIDATE: 5,   // PM tira: Validación -> Done
@@ -14,7 +14,7 @@ export const STEP = {
 
 export const STEP_LABEL = {
   1: 'Paso 1 · El PM mete 3 historias en Backlog',
-  2: 'Paso 2 · El PM tira el dado: Backlog → Análisis',
+  2: 'Paso 2 · El PM tira el dado: Backlog → Refinement',
   3: 'Paso 3 · Los Devs actúan',
   4: 'Paso 4 · QA prueba las historias',
   5: 'Paso 5 · El PM valida: Validación PM → Done',
@@ -258,12 +258,12 @@ const HANDLERS = {
 
   // Paso 2
   'pm-pull': (s, a) => {
-    if (s.step !== STEP.PM_PULL) return { msg: 'No es el paso del PM (Backlog→Análisis).' };
+    if (s.step !== STEP.PM_PULL) return { msg: 'No es el paso del PM (Backlog→Refinement).' };
     const dice = a.dice;
     const { state, moved } = R.pmPullToAnalysis(s, dice);
     s.cards = state.cards;
     setDice(s, 'pm-pull', dice, a.by);
-    pushLog(s, `El PM saca ${dice} y mueve ${moved} historia(s) a Análisis.`);
+    pushLog(s, `El PM saca ${dice} y mueve ${moved} historia(s) a Refinement.`);
     startDevsStep(s);
     return {};
   },
@@ -274,6 +274,7 @@ const HANDLERS = {
     const cur = currentDev(s);
     if (!cur) return { msg: 'Todos los Devs han actuado.' };
     if (a.expect && a.expect.dev && cur !== a.expect.dev) return { msg: 'El turno ya cambió.' };
+    if (R.needsPair(s.cards?.[a.cardId])) return { msg: 'Esa historia (Fibonacci > 8) debe hacerse en pair.' };
     const dice = a.dice;
     setDice(s, 'dev-advance', dice, cur);
     if (!R.diceAdvances(dice)) pushLog(s, `Dev saca ${dice}: la historia no avanza.`);
@@ -416,20 +417,19 @@ export function botAction(state) {
     if (reviewCards.length && R.hasRoom(state, a.id.qa)) {
       return { type: 'dev-review', cardId: reviewCards[0].id, dice: rollDie(), expect: { step, dev: cur } };
     }
-    // Avanzar: elegir una historia cuyo destino tenga hueco, priorizando la más avanzada.
-    const sources = R.advanceSources(state);
-    let pick = null;
-    for (let i = sources.length - 1; i >= 0 && !pick; i--) {
-      const next = R.nextColumnId(state, sources[i]);
-      for (const c of R.cardsInColumn(state.cards, sources[i])) { if (R.hasRoom(state, next)) { pick = c; break; } }
-    }
-    if (!pick) {
-      for (let i = sources.length - 1; i >= 0 && !pick; i--) {
-        const cs = R.cardsInColumn(state.cards, sources[i]);
-        if (cs.length) { pick = cs[0]; }
+    // Avanzar: candidatas con hueco en destino, por prioridad (mayor primero).
+    const cands = R.advanceSources(state)
+      .flatMap((colId) => (R.hasRoom(state, R.nextColumnId(state, colId)) ? R.cardsInColumn(state.cards, colId) : []))
+      .sort((x, y) => R.priorityOf(y) - R.priorityOf(x));
+    const pending = (state.devOrder || []).filter((u) => !(state.devActed || {})[u] && u !== cur);
+    for (const c of cands) {
+      if (R.needsPair(c)) {
+        if (pending.length) return { type: 'dev-pair', cardId: c.id, dice: [rollDie(), rollDie()], partner: pending[0], expect: { step, dev: cur } };
+        continue; // historia grande sin compañero: probar otra
       }
+      return { type: 'dev-advance', cardId: c.id, dice: rollDie(), expect: { step, dev: cur } };
     }
-    return { type: 'dev-advance', cardId: pick ? pick.id : null, dice: rollDie(), expect: { step, dev: cur } };
+    return { type: 'dev-finish', expect: { step } };
   }
   return null;
 }
