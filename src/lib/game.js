@@ -409,9 +409,10 @@ const HANDLERS = {
     const n = s.nextNumber || 1;
     const id = `s${n}`;
     const fib = [2, 3, 5, 8][Math.floor(Math.random() * 4)];
-    s.cards = { ...(s.cards || {}), [id]: { id, number: n, col: a.id.analysis, bug: false, business: 5, dev: fib, urgent: true } };
+    // Entra directa a Desarrollo (se atiende ya, sin estimar) e ignora el WIP.
+    s.cards = { ...(s.cards || {}), [id]: { id, number: n, col: a.id.devReturn, bug: false, business: 5, dev: fib, urgent: true } };
     s.nextNumber = n + 1;
-    pushLog(s, `🔥 Entra una historia URGENT (#${n}): sácala ya; ignora el WIP y para el resto del desarrollo.`);
+    pushLog(s, `🔥 Entra una historia URGENT (#${n}) directa a Desarrollo: sácala ya; ignora el WIP y para el resto.`);
     return {};
   },
 
