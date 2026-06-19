@@ -592,6 +592,7 @@ export class GameBoard extends LitElement {
         <kbg-dice count=${mustPair ? 2 : 1} label="Tirar" .disabled=${!canRoll}
           @roll=${(e) => this.devActConcurrent(useCard, action, mustPair, partner, actor, e.detail.values)}></kbg-dice>
         ${meIsDev && this.myClaimId ? html`<button class="btn-sm" @click=${() => this.act('dev-unclaim', { cardId: this.myClaimId, dev: this.me.uid })}>Soltar</button>` : ''}
+        ${meIsDev ? html`<button class="btn-sm" title="No puedo hacer nada este turno (WIP lleno o sin historias)" @click=${() => this.act('dev-pass', { dev: this.me.uid })}>⏭ Paso</button>` : ''}
         ${canFinish ? html`<button @click=${() => this.act('dev-finish')}>✔ Pasar a QA (todos)</button>` : ''}
       </div>
     </div>`;
