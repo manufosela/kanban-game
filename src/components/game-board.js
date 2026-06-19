@@ -134,7 +134,9 @@ export class GameBoard extends LitElement {
       const qas = withRole('QA'); return (qas.length && qas.every(isBotId)) ? qas[0] : null;
     }
     if (g.step === STEP.DEVS) {
-      const cur = this.currentDevUid; return isBotId(cur) ? cur : null;
+      // Cualquier bot Dev pendiente (juego concurrente), no solo el "de turno".
+      const acted = g.devActed || {};
+      return (g.devOrder || []).find((u) => !acted[u] && isBotId(u)) || null;
     }
     return null;
   }
@@ -157,12 +159,22 @@ export class GameBoard extends LitElement {
     localStorage.setItem('kbg.botDelayMs', String(ms));
   }
   get currentDevUid() { return currentDev(this.game); }
-  /** ¿Me toca accionar AHORA? (en Devs, solo el Dev de turno; admin siempre). */
+  /** ¿Soy un Dev de este turno que aún no ha actuado? (juego concurrente). */
+  get iAmPendingDev() {
+    const g = this.game; const u = this.me?.uid;
+    return !!u && (g?.devOrder || []).includes(u) && !(g?.devActed || {})[u];
+  }
+  /** Carta que tengo reclamada (bloqueada) este turno, o null. */
+  get myClaimId() {
+    const cl = this.game?.claims || {};
+    return Object.keys(cl).find((cid) => cl[cid] === this.me?.uid) || null;
+  }
+  /** ¿Me toca accionar AHORA? (en Devs, cualquier Dev pendiente; admin siempre). */
   get actorIsMe() {
     const g = this.game;
     if (!g || g.status !== 'playing') return false;
     if (this.isMod) return true;
-    if (g.step === STEP.DEVS) return this.myGameRole === 'DEV' && this.me?.uid === this.currentDevUid;
+    if (g.step === STEP.DEVS) return this.myGameRole === 'DEV' && this.iAmPendingDev;
     return this.myGameRole === this.activeRole;
   }
 
@@ -368,10 +380,9 @@ export class GameBoard extends LitElement {
       else msg = `El PM moverá de Backlog → Análisis según el dado${wip && room ? ` (Análisis ${room})` : ''}.`;
     } else if (g.step === STEP.DEVS) {
       const sel = this.selectedCardId ? g.cards[this.selectedCardId] : null;
-      if (!sel) { msg = 'Selecciona una historia y una opción para ver qué ocurrirá.'; }
-      else if (this.devAction === 'review') {
-        if (sel.col !== a.id.review) { blocked = true; msg = `#${sel.number} no está en Revisión PR; no se puede revisar.`; }
-        else if (wip && !R.hasRoom(g, a.id.qa)) { blocked = true; msg = `#${sel.number}: QA llena (${roomTxt(a.id.qa)}); no podrá pasar a QA.`; }
+      if (!sel) { msg = 'Coge una historia del tablero (clic) para verla.'; }
+      else if (sel.col === a.id.review) {
+        if (wip && !R.hasRoom(g, a.id.qa)) { blocked = true; msg = `#${sel.number}: QA llena (${roomTxt(a.id.qa)}); no podrá pasar a QA.`; }
         else msg = `#${sel.number}: Revisión PR → QA (si el dado es 3+).`;
       } else {
         const toId = R.nextColumnId(g, sel.col);
@@ -435,21 +446,37 @@ export class GameBoard extends LitElement {
   }
 
   renderCard(card, col, a, step) {
-    const selectable = this.canAct && (
-      (step === STEP.DEVS && (R.advanceSources(this.game).includes(card.col) || card.col === a.id.review)) ||
-      (step === STEP.QA && card.col === a.id.qa)
-    );
-    const selected = this.selectedCardId === card.id;
+    const claims = this.game?.claims || {};
+    const claimer = claims[card.id];
+    const claimedByMe = claimer && claimer === this.me?.uid;
+    const claimedByOther = claimer && claimer !== this.me?.uid;
+    const devValid = step === STEP.DEVS && (R.advanceSources(this.game).includes(card.col) || card.col === a.id.review);
+    const qaValid = step === STEP.QA && card.col === a.id.qa;
+    let selectable = false;
+    if (qaValid) selectable = this.canAct;
+    else if (devValid) selectable = (this.isMod || this.iAmPendingDev) && !claimedByOther;
+    const selected = this.selectedCardId === card.id || claimedByMe;
     return html`
-      <div class="postit ${card.bug ? 'bug' : ''} ${selected ? 'sel' : ''} ${selectable ? 'pick' : ''} ${R.needsPair(card) ? 'big' : ''}"
+      <div class="postit ${card.bug ? 'bug' : ''} ${selected ? 'sel' : ''} ${selectable ? 'pick' : ''} ${R.needsPair(card) ? 'big' : ''} ${claimedByOther ? 'claimed' : ''}"
            data-cid=${card.id}
-           @click=${() => { if (selectable) this.selectedCardId = selected ? null : card.id; }}>
+           @click=${() => this.onCardClick(card, step, selectable)}>
         <span class="num">#${card.number}</span>
         ${card.business ? html`<span class="pts" title="Negocio ${card.business} · Dev ${card.dev ?? '—'}">${card.business}<span class="sep">/</span>${card.dev ?? '·'}</span>` : ''}
         ${R.needsPair(card) ? html`<span class="pairmark" title="Fibonacci > 8: se hace en pair">👥</span>` : ''}
+        ${claimer ? html`<span class="claimmark" title="${claimedByMe ? 'La tienes tú' : this.nameOf(claimer)}">${claimedByMe ? '✋' : '🔒'}</span>` : ''}
         ${card.bug ? html`<span class="bugmark" title="Tiene un bug">🐞</span>` : ''}
       </div>
     `;
+  }
+  onCardClick(card, step, selectable) {
+    if (!selectable) return;
+    if (step === STEP.DEVS && this.iAmPendingDev) {
+      // Reclamar (bloquear) la historia para mí; si ya era la mía, soltarla.
+      if (this.myClaimId === card.id) { this.act('dev-unclaim', { cardId: card.id, dev: this.me.uid }); this.selectedCardId = null; }
+      else { this.act('dev-claim', { cardId: card.id, dev: this.me.uid }); this.selectedCardId = card.id; }
+    } else {
+      this.selectedCardId = this.selectedCardId === card.id ? null : card.id;
+    }
   }
 
   renderControls() {
@@ -486,14 +513,14 @@ export class GameBoard extends LitElement {
     const g = this.game;
     const order = g.devOrder || [];
     const acted = g.devActed || {};
-    const cur = this.currentDevUid;
+    const claims = g.claims || {};
     return html`<div class="dev-roster">
       ${order.map((uid) => {
         const done = !!acted[uid];
-        const isCur = uid === cur;
         const isMe = uid === this.me?.uid;
-        return html`<span class="dev-chip ${done ? 'done' : ''} ${isCur ? 'cur' : ''}">
-          ${done ? '✓' : isCur ? '➡️' : '⏳'} ${this.nameOf(uid)}${isMe ? ' (tú)' : ''}
+        const claimed = Object.values(claims).includes(uid);
+        return html`<span class="dev-chip ${done ? 'done' : ''} ${isMe && !done ? 'cur' : ''}">
+          ${done ? '✓' : claimed ? '✋' : '⏳'} ${this.nameOf(uid)}${isMe ? ' (tú)' : ''}
         </span>`;
       })}
     </div>`;
@@ -502,62 +529,59 @@ export class GameBoard extends LitElement {
   ctrlDevs() {
     const g = this.game;
     const a = this.anchors();
-    const cur = this.currentDevUid;
     const canFinish = this.isMod || this.myGameRole === 'PM';
+    const acted = g.devActed || {};
+    const claims = g.claims || {};
 
     if (!this.actorIsMe) {
+      const pendientes = (g.devOrder || []).filter((u) => !acted[u]).length;
       return html`<div class="controls card stack">
-        <p>Paso de los Devs · le toca a <strong>${cur ? this.nameOf(cur) : '—'}</strong>.</p>
+        <p><strong>Devs trabajando a la vez.</strong> Faltan <strong>${pendientes}</strong> por actuar.</p>
         ${this.renderDevRoster()}
         ${canFinish ? html`<button @click=${() => this.act('dev-finish')}>✔ Forzar cierre → QA</button>` : ''}
       </div>`;
     }
 
-    // Historias válidas por acción, las de avanzar ordenadas por prioridad (mayor primero).
-    const advanceCards = R.advanceSources(g)
-      .flatMap((colId) => R.cardsInColumn(g.cards, colId))
-      .sort((x, y) => R.priorityOf(y) - R.priorityOf(x));
-    const reviewCards = R.cardsInColumn(g.cards, a.id.review);
-    const hasReview = reviewCards.length > 0;
-    // Si «Revisar PR» no tiene tarjetas, se fuerza a «Avanzar».
-    const action = (this.devAction === 'review' && hasReview) ? 'review' : 'advance';
-    const cards = action === 'review' ? reviewCards : advanceCards;
-    // Historia a usar: la seleccionada si es válida; si no, la de mayor prioridad.
-    const selValid = this.selectedCardId && cards.some((c) => c.id === this.selectedCardId);
-    const useCard = selValid ? g.cards[this.selectedCardId] : (cards[0] || null);
-    // Pair obligatorio si la historia (avanzar) tiene Fibonacci > 8.
+    const meIsDev = this.iAmPendingDev;
+    const actor = meIsDev ? this.me.uid : this.currentDevUid;
+    const free = (c) => !claims[c.id] || claims[c.id] === actor;
+    // Carta a usar: la reclamada (humano) o, si modero, la de mayor prioridad libre.
+    let useCard = null;
+    if (meIsDev) {
+      const cid = this.myClaimId;
+      useCard = cid ? g.cards[cid] : null;
+    } else {
+      const adv = R.advanceSources(g).flatMap((col) => R.cardsInColumn(g.cards, col)).filter(free).sort((x, y) => R.priorityOf(y) - R.priorityOf(x));
+      useCard = adv[0] || R.cardsInColumn(g.cards, a.id.review).filter(free)[0] || null;
+    }
+    const isReview = !!useCard && useCard.col === a.id.review;
+    const action = isReview ? 'review' : 'advance';
     const mustPair = action === 'advance' && R.needsPair(useCard);
-    const pending = (g.devOrder || []).filter((u) => !(g.devActed || {})[u] && u !== cur);
-    const partner = mustPair ? (pending[0] || null) : null;
+    const partner = mustPair ? (g.devOrder || []).find((u) => !acted[u] && u !== actor) : null;
     const canRoll = !!useCard && (!mustPair || !!partner);
     return html`<div class="controls card stack">
-      <p><strong>Te toca${cur && cur !== this.me?.uid ? ` (accionas por ${this.nameOf(cur)})` : ''}.</strong> Tira ${mustPair ? '2 dados (pair)' : 'el dado'} para ${action === 'review' ? 'pasar un PR a QA' : 'avanzar una historia'}.</p>
+      <p><strong>Devs trabajando a la vez.</strong> ${meIsDev ? 'Coge una historia (clic en el tablero) y tira.' : html`Accionas por <strong>${this.nameOf(actor)}</strong>.`}</p>
       ${this.renderDevRoster()}
-      ${hasReview ? html`<div class="row">
-        ${this.devOpt('advance', 'Avanzar (dado 3+)')}
-        ${this.devOpt('review', 'Revisar PR (dado 3+)')}
-      </div>` : ''}
       <p class="muted" style="margin:0">
-        ${useCard ? html`Historia <strong>#${useCard.number}</strong>${useCard.business ? html` · negocio ${useCard.business}${useCard.dev ? ` · dev ${useCard.dev}` : ''}` : ''}. Toca otra en el tablero para cambiarla.` : 'No hay historias para esta acción ahora mismo.'}
+        ${useCard
+          ? html`Tu historia: <strong>#${useCard.number}</strong>${useCard.business ? html` · negocio ${useCard.business}${useCard.dev ? ` · dev ${useCard.dev}` : ''}` : ''} — ${isReview ? 'revisar PR → QA' : 'avanzar a la siguiente columna'}.`
+          : (meIsDev ? html`<span style="color:var(--c-warning)">Clica una historia libre del tablero para cogerla.</span>` : 'No hay historias libres ahora mismo.')}
         ${mustPair && partner ? html`<br>🔧 Grande (Fib ${useCard.dev}): se hace en <strong>pair</strong> con ${this.nameOf(partner)} (suma 5+).` : ''}
-        ${mustPair && !partner ? html`<br><span style="color:var(--c-warning)">🔧 Grande (Fib ${useCard.dev}): necesita 2 Devs disponibles. Espera o elige otra historia.</span>` : ''}
+        ${mustPair && !partner ? html`<br><span style="color:var(--c-warning)">🔧 Grande (Fib ${useCard.dev}): necesita otro Dev disponible. Espera o coge otra.</span>` : ''}
       </p>
       <div class="row" style="gap:16px">
         <kbg-dice count=${mustPair ? 2 : 1} label="Tirar" .disabled=${!canRoll}
-          @roll=${(e) => (mustPair
-            ? this.act('dev-pair', { cardId: useCard.id, dice: e.detail.values, partner })
-            : this.devRoll(useCard, e.detail.values[0], action))}></kbg-dice>
-        ${canFinish ? html`<button @click=${() => this.act('dev-finish')}>✔ Pasar a QA</button>` : ''}
+          @roll=${(e) => this.devActConcurrent(useCard, action, mustPair, partner, actor, e.detail.values)}></kbg-dice>
+        ${meIsDev && this.myClaimId ? html`<button class="btn-sm" @click=${() => this.act('dev-unclaim', { cardId: this.myClaimId, dev: this.me.uid })}>Soltar</button>` : ''}
+        ${canFinish ? html`<button @click=${() => this.act('dev-finish')}>✔ Pasar a QA (todos)</button>` : ''}
       </div>
     </div>`;
   }
-  devOpt(id, label) {
-    return html`<button class=${this.devAction === id ? 'btn-primary' : ''} @click=${() => { this.devAction = id; }}>${label}</button>`;
-  }
-  devRoll(card, dice, action) {
+  devActConcurrent(card, action, mustPair, partner, actor, values) {
     if (!card) return;
-    if (action === 'review') this.act('dev-review', { cardId: card.id, dice });
-    else this.act('dev-advance', { cardId: card.id, dice });
+    if (mustPair) this.act('dev-pair', { cardId: card.id, dice: values, partner, dev: actor });
+    else if (action === 'review') this.act('dev-review', { cardId: card.id, dice: values[0], dev: actor });
+    else this.act('dev-advance', { cardId: card.id, dice: values[0], dev: actor });
     this.selectedCardId = null;
   }
 
@@ -681,6 +705,8 @@ export class GameBoard extends LitElement {
       kbg-game .postit .pts .sep { opacity: .5; margin: 0 1px; }
       kbg-game .postit.big { outline: 2px solid #b07cff; }
       kbg-game .postit .pairmark { position: absolute; bottom: -7px; right: -5px; font-size: .82rem; }
+      kbg-game .postit .claimmark { position: absolute; top: -8px; left: -6px; font-size: .82rem; }
+      kbg-game .postit.claimed { opacity: .5; filter: grayscale(.4); }
       kbg-game .postit .bugmark { position: absolute; top: -8px; right: -6px; font-size: .9rem; }
       kbg-game .controls { margin-top: 14px; }
       kbg-game .logfeed { margin: 0; }

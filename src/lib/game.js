@@ -251,9 +251,26 @@ export function currentDev(s) {
   const acted = s?.devActed || {};
   return order.find((u) => !acted[u]) || null;
 }
+/** ¿Es `u` un Dev de este turno que aún no ha actuado? */
+function devIsPending(s, u) {
+  return !!u && (s.devOrder || []).includes(u) && !(s.devActed || {})[u];
+}
+/** Dev que ejecuta la acción (juego concurrente): el indicado, o quien la lanza, o el siguiente pendiente. */
+function actingDev(s, a) {
+  if (devIsPending(s, a.dev)) return a.dev;
+  if (devIsPending(s, a.by)) return a.by;
+  return currentDev(s);
+}
+/** Quita los candados de carta de los Devs indicados. */
+function clearDevClaims(s, uids) {
+  if (!s.claims) return;
+  const set = new Set(uids.filter(Boolean));
+  for (const [cid, u] of Object.entries(s.claims)) if (set.has(u)) delete s.claims[cid];
+}
 function markDevActed(s, uids) {
   s.devActed = { ...(s.devActed || {}) };
   for (const u of uids) if (u) s.devActed[u] = true;
+  clearDevClaims(s, uids);
   const all = (s.devOrder || []).every((u) => s.devActed[u]);
   if (all) { pushLog(s, 'Todos los Devs han actuado.'); enterQaStep(s); }
 }
@@ -282,64 +299,79 @@ const HANDLERS = {
     return {};
   },
 
-  // Paso 3 — Dev avanzar (el Dev de turno)
+  // Paso 3 — un Dev reclama (bloquea) una historia para trabajarla (juego concurrente)
+  'dev-claim': (s, a) => {
+    if (s.step !== STEP.DEVS) return {};
+    const dev = actingDev(s, a);
+    if (!devIsPending(s, dev)) return {};
+    s.claims = s.claims || {};
+    const owner = s.claims[a.cardId];
+    if (owner && owner !== dev) return { msg: 'Esa historia ya la ha cogido otro Dev.' };
+    clearDevClaims(s, [dev]); // un Dev solo bloquea una a la vez
+    s.claims[a.cardId] = dev;
+    return {};
+  },
+  'dev-unclaim': (s, a) => {
+    if (!s.claims) return {};
+    const dev = actingDev(s, a);
+    if (s.claims[a.cardId] && s.claims[a.cardId] === dev) delete s.claims[a.cardId];
+    return {};
+  },
+
+  // Paso 3 — Dev avanzar (cualquier Dev pendiente, sobre su historia)
   'dev-advance': (s, a) => {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
-    const cur = currentDev(s);
-    if (!cur) return { msg: 'Todos los Devs han actuado.' };
-    if (a.expect && a.expect.dev && cur !== a.expect.dev) return { msg: 'El turno ya cambió.' };
+    const dev = actingDev(s, a);
+    if (!devIsPending(s, dev)) return { msg: 'Ya has actuado este turno (o no eres Dev).' };
+    if ((s.claims?.[a.cardId]) && s.claims[a.cardId] !== dev) return { msg: 'Esa historia la tiene otro Dev.' };
     if (R.needsPair(s.cards?.[a.cardId])) return { msg: 'Esa historia (Fibonacci > 8) debe hacerse en pair.' };
     const dice = a.dice;
-    setDice(s, 'dev-advance', dice, cur);
+    setDice(s, 'dev-advance', dice, dev);
     if (!R.diceAdvances(dice)) pushLog(s, `Dev saca ${dice}: la historia no avanza.`);
     else {
       const out = R.devAdvance(s, a.cardId);
       if (out.ok) { s.cards = out.state.cards; pushLog(s, `Dev saca ${dice}: la historia #${num(s, a.cardId)} avanza.`); }
       else pushLog(s, `Dev saca ${dice} pero no puede avanzar (${reason(out.reason)}).`);
     }
-    markDevActed(s, [cur]);
+    markDevActed(s, [dev]);
     return {};
   },
 
-  // Paso 3 — Dev revisar PR (el Dev de turno)
+  // Paso 3 — Dev revisar PR (cualquier Dev pendiente)
   'dev-review': (s, a) => {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
-    const cur = currentDev(s);
-    if (!cur) return { msg: 'Todos los Devs han actuado.' };
-    if (a.expect && a.expect.dev && cur !== a.expect.dev) return { msg: 'El turno ya cambió.' };
+    const dev = actingDev(s, a);
+    if (!devIsPending(s, dev)) return { msg: 'Ya has actuado este turno (o no eres Dev).' };
+    if ((s.claims?.[a.cardId]) && s.claims[a.cardId] !== dev) return { msg: 'Esa historia la tiene otro Dev.' };
     const dice = a.dice;
-    setDice(s, 'dev-review', dice, cur);
+    setDice(s, 'dev-review', dice, dev);
     if (!R.diceAdvances(dice)) pushLog(s, `Revisión de PR: saca ${dice}, no se completa.`);
     else {
       const out = R.devReview(s, a.cardId);
       if (out.ok) { s.cards = out.state.cards; pushLog(s, `Revisión de PR (${dice}): la historia #${num(s, a.cardId)} pasa a QA.`); }
       else pushLog(s, `Revisión de PR (${dice}) pero no puede mover (${reason(out.reason)}).`);
     }
-    markDevActed(s, [cur]);
+    markDevActed(s, [dev]);
     return {};
   },
 
-  // Paso 3 — Pair programming: el Dev de turno + un compañero pendiente (consume a ambos)
+  // Paso 3 — Pair: un Dev + un compañero pendiente (consume a ambos), para historias grandes
   'dev-pair': (s, a) => {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
-    const cur = currentDev(s);
-    if (!cur) return { msg: 'Todos los Devs han actuado.' };
-    if (a.expect && a.expect.dev && cur !== a.expect.dev) return { msg: 'El turno ya cambió.' };
+    const dev = actingDev(s, a);
+    if (!devIsPending(s, dev)) return { msg: 'Ya has actuado este turno (o no eres Dev).' };
+    if ((s.claims?.[a.cardId]) && s.claims[a.cardId] !== dev) return { msg: 'Esa historia la tiene otro Dev.' };
     const partner = a.partner;
-    const order = s.devOrder || [];
-    const acted = s.devActed || {};
-    if (!partner || !order.includes(partner) || acted[partner] || partner === cur) {
-      return { msg: 'Elige un compañero Dev pendiente para el pair.' };
-    }
+    if (!devIsPending(s, partner) || partner === dev) return { msg: 'Hace falta otro Dev disponible para el pair.' };
     const [d1, d2] = a.dice;
-    setDice(s, 'dev-pair', [d1, d2], cur);
+    setDice(s, 'dev-pair', [d1, d2], dev);
     if (!R.pairAdvances(d1, d2)) pushLog(s, `Pair: ${d1}+${d2}=${d1 + d2}, no avanza.`);
     else {
       const out = R.devAdvance(s, a.cardId);
       if (out.ok) { s.cards = out.state.cards; pushLog(s, `Pair (${d1}+${d2}=${d1 + d2}): la historia #${num(s, a.cardId)} avanza.`); }
       else pushLog(s, `Pair (${d1}+${d2}) pero no puede avanzar (${reason(out.reason)}).`);
     }
-    markDevActed(s, [cur, partner]);
+    markDevActed(s, [dev, partner]);
     return {};
   },
 
@@ -423,26 +455,32 @@ export function botAction(state) {
     return { type: 'qa-finish', expect: { step } };
   }
   if (step === STEP.DEVS) {
-    const cur = currentDev(state);
-    if (!cur) return { type: 'dev-finish', expect: { step } };
-    // Primero DESARROLLAR: avanzar la historia de mayor prioridad con hueco en destino.
+    const acted = state.devActed || {};
+    const isBot = (u) => typeof u === 'string' && u.startsWith('bot_');
+    const cur = (state.devOrder || []).find((u) => !acted[u] && isBot(u));
+    if (!cur) return null; // no hay bot pendiente; que actúen los humanos
+    const claims = state.claims || {};
+    const free = (c) => !claims[c.id] || claims[c.id] === cur;
+    // Primero DESARROLLAR: avanzar la historia libre de mayor prioridad con hueco en destino.
     const cands = R.advanceSources(state)
       .flatMap((colId) => (R.hasRoom(state, R.nextColumnId(state, colId)) ? R.cardsInColumn(state.cards, colId) : []))
+      .filter(free)
       .sort((x, y) => R.priorityOf(y) - R.priorityOf(x));
-    const pending = (state.devOrder || []).filter((u) => !(state.devActed || {})[u] && u !== cur);
+    const botPartner = (state.devOrder || []).find((u) => !acted[u] && u !== cur && isBot(u));
     for (const c of cands) {
       if (R.needsPair(c)) {
-        if (pending.length) return { type: 'dev-pair', cardId: c.id, dice: [rollDie(), rollDie()], partner: pending[0], expect: { step, dev: cur } };
-        continue; // historia grande sin compañero: probar otra
+        if (botPartner) return { type: 'dev-pair', cardId: c.id, dice: [rollDie(), rollDie()], partner: botPartner, dev: cur, expect: { step } };
+        continue; // grande sin otro bot: probar otra
       }
-      return { type: 'dev-advance', cardId: c.id, dice: rollDie(), expect: { step, dev: cur } };
+      return { type: 'dev-advance', cardId: c.id, dice: rollDie(), dev: cur, expect: { step } };
     }
-    // Si no hay nada que avanzar, entonces revisar un PR pendiente (alimenta a QA).
-    const reviewCards = R.cardsInColumn(state.cards, a.id.review);
+    // Si no hay nada que avanzar, revisar un PR libre (alimenta a QA).
+    const reviewCards = R.cardsInColumn(state.cards, a.id.review).filter(free);
     if (reviewCards.length && R.hasRoom(state, a.id.qa)) {
-      return { type: 'dev-review', cardId: reviewCards[0].id, dice: rollDie(), expect: { step, dev: cur } };
+      return { type: 'dev-review', cardId: reviewCards[0].id, dice: rollDie(), dev: cur, expect: { step } };
     }
-    return { type: 'dev-finish', expect: { step } };
+    // Nada útil que hacer: gasta su acción sin mover (no bloquea a los humanos).
+    return { type: 'dev-advance', cardId: null, dice: rollDie(), dev: cur, expect: { step } };
   }
   return null;
 }
