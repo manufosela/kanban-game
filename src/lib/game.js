@@ -391,6 +391,16 @@ const HANDLERS = {
     return {};
   },
 
+  // Un Dev pasa su acción (no puede hacer nada: WIP lleno, sin historias…). Se marca como actuado.
+  'dev-pass': (s, a) => {
+    if (s.step !== STEP.DEVS) return {};
+    const dev = actingDev(s, a);
+    if (!devIsPending(s, dev)) return {};
+    pushLog(s, 'Un Dev pasa (nada que hacer este turno).');
+    markDevActed(s, [dev]);
+    return {};
+  },
+
   // Urgent (expedite): el facilitador mete una historia urgente que entra en Refinement,
   // ignora el WIP y bloquea el desarrollo normal hasta que termina. Solo en la ronda con WIP.
   'inject-urgent': (s) => {
