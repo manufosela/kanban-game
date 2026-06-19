@@ -195,10 +195,12 @@ export class GameBoard extends LitElement {
       <div class="playarea">
         <div class="playmain">
           ${this.renderColumns()}
-          ${this.game.status === 'finished' ? this.renderFinished()
-            : this.game.status === 'paused' ? this.renderPaused()
-            : this.renderControls()}
-          ${this.game.status === 'playing' && this.actorIsMe ? this.renderPreview() : ''}
+          <div class="ctrl-wrap ${this.game.status === 'playing' && this.actorIsMe ? 'myturn' : ''}">
+            ${this.game.status === 'finished' ? this.renderFinished()
+              : this.game.status === 'paused' ? this.renderPaused()
+              : this.renderControls()}
+            ${this.game.status === 'playing' && this.actorIsMe ? this.renderPreview() : ''}
+          </div>
         </div>
         ${this.renderLog()}
       </div>
@@ -629,6 +631,16 @@ export class GameBoard extends LitElement {
       kbg-game { display: block; max-width: 1380px; margin: 0 auto; padding: 16px; }
       kbg-game .playarea { display: grid; grid-template-columns: 1fr; gap: 14px; align-items: start; }
       kbg-game .playmain { min-width: 0; }
+      kbg-game { --tribbu-pink: #ff2e8a; }
+      kbg-game .ctrl-wrap.myturn .controls {
+        border: 4px solid var(--tribbu-pink);
+        box-shadow: 0 0 0 4px rgba(255,46,138,.20), 0 0 22px rgba(255,46,138,.35);
+        animation: kbgTurnPulse 1.6s ease-in-out infinite;
+      }
+      @keyframes kbgTurnPulse {
+        0%, 100% { box-shadow: 0 0 0 4px rgba(255,46,138,.18), 0 0 18px rgba(255,46,138,.30); }
+        50% { box-shadow: 0 0 0 6px rgba(255,46,138,.28), 0 0 30px rgba(255,46,138,.50); }
+      }
       kbg-game .playflash { margin: 0 0 12px; padding: 10px 16px; border-radius: 8px; background: #14304a; border-left: 4px solid var(--c-primary); font-size: 1.05rem; font-weight: 600; animation: kbgFlashIn .25s ease; }
       @keyframes kbgFlashIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
       kbg-game .postit { transition: box-shadow .2s; }
