@@ -261,6 +261,10 @@ function actingDev(s, a) {
   if (devIsPending(s, a.by)) return a.by;
   return currentDev(s);
 }
+/** ¿La historia `cardId` está vetada por haber una Urgent en curso? (solo se puede trabajar la Urgent). */
+function urgentBlocks(s, cardId) {
+  return R.urgentActive(s) && !s.cards?.[cardId]?.urgent;
+}
 /** Quita los candados de carta de los Devs indicados. */
 function clearDevClaims(s, uids) {
   if (!s.claims) return;
@@ -304,6 +308,7 @@ const HANDLERS = {
     if (s.step !== STEP.DEVS) return {};
     const dev = actingDev(s, a);
     if (!devIsPending(s, dev)) return {};
+    if (urgentBlocks(s, a.cardId)) return { msg: 'Hay una historia Urgent en curso: cógela a ella.' };
     s.claims = s.claims || {};
     const owner = s.claims[a.cardId];
     if (owner && owner !== dev) return { msg: 'Esa historia ya la ha cogido otro Dev.' };
@@ -323,6 +328,7 @@ const HANDLERS = {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
     const dev = actingDev(s, a);
     if (!devIsPending(s, dev)) return { msg: 'Ya has actuado este turno (o no eres Dev).' };
+    if (urgentBlocks(s, a.cardId)) return { msg: 'Hay una historia Urgent en curso: trabájala antes.' };
     if ((s.claims?.[a.cardId]) && s.claims[a.cardId] !== dev) return { msg: 'Esa historia la tiene otro Dev.' };
     if (R.needsPair(s.cards?.[a.cardId])) return { msg: 'Esa historia (Fibonacci > 8) debe hacerse en pair.' };
     const dice = a.dice;
@@ -342,6 +348,7 @@ const HANDLERS = {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
     const dev = actingDev(s, a);
     if (!devIsPending(s, dev)) return { msg: 'Ya has actuado este turno (o no eres Dev).' };
+    if (urgentBlocks(s, a.cardId)) return { msg: 'Hay una historia Urgent en curso: trabájala antes.' };
     if ((s.claims?.[a.cardId]) && s.claims[a.cardId] !== dev) return { msg: 'Esa historia la tiene otro Dev.' };
     const dice = a.dice;
     setDice(s, 'dev-review', dice, dev);
@@ -360,6 +367,7 @@ const HANDLERS = {
     if (s.step !== STEP.DEVS) return { msg: 'No es el paso de los Devs.' };
     const dev = actingDev(s, a);
     if (!devIsPending(s, dev)) return { msg: 'Ya has actuado este turno (o no eres Dev).' };
+    if (urgentBlocks(s, a.cardId)) return { msg: 'Hay una historia Urgent en curso: trabájala antes.' };
     if ((s.claims?.[a.cardId]) && s.claims[a.cardId] !== dev) return { msg: 'Esa historia la tiene otro Dev.' };
     const partner = a.partner;
     if (!devIsPending(s, partner) || partner === dev) return { msg: 'Hace falta otro Dev disponible para el pair.' };
@@ -380,6 +388,20 @@ const HANDLERS = {
     if (s.step !== STEP.DEVS) return {};
     pushLog(s, 'Se cierra el paso de Devs.');
     enterQaStep(s);
+    return {};
+  },
+
+  // Urgent (expedite): el facilitador mete una historia urgente que entra en Refinement,
+  // ignora el WIP y bloquea el desarrollo normal hasta que termina. Solo en la ronda con WIP.
+  'inject-urgent': (s) => {
+    if (!s.wipEnabled) return { msg: 'Urgent solo está disponible en la ronda con WIP.' };
+    const a = R.anchors(R.orderedColumns(s.columns));
+    const n = s.nextNumber || 1;
+    const id = `s${n}`;
+    const fib = [2, 3, 5, 8][Math.floor(Math.random() * 4)];
+    s.cards = { ...(s.cards || {}), [id]: { id, number: n, col: a.id.analysis, bug: false, business: 5, dev: fib, urgent: true } };
+    s.nextNumber = n + 1;
+    pushLog(s, `🔥 Entra una historia URGENT (#${n}): sácala ya; ignora el WIP y para el resto del desarrollo.`);
     return {};
   },
 
@@ -461,11 +483,14 @@ export function botAction(state) {
     if (!cur) return null; // no hay bot pendiente; que actúen los humanos
     const claims = state.claims || {};
     const free = (c) => !claims[c.id] || claims[c.id] === cur;
-    // Primero DESARROLLAR: avanzar la historia libre de mayor prioridad con hueco en destino.
+    const blocked = R.urgentActive(state); // si hay Urgent, solo se trabaja la Urgent
+    // Primero DESARROLLAR: Urgent antes que nada, luego por prioridad. Urgent ignora el WIP.
     const cands = R.advanceSources(state)
-      .flatMap((colId) => (R.hasRoom(state, R.nextColumnId(state, colId)) ? R.cardsInColumn(state.cards, colId) : []))
+      .flatMap((colId) => R.cardsInColumn(state.cards, colId))
       .filter(free)
-      .sort((x, y) => R.priorityOf(y) - R.priorityOf(x));
+      .filter((c) => c.urgent || R.hasRoom(state, R.nextColumnId(state, c.col)))
+      .filter((c) => !blocked || c.urgent)
+      .sort((x, y) => (Number(!!y.urgent) - Number(!!x.urgent)) || (R.priorityOf(y) - R.priorityOf(x)));
     const botPartner = (state.devOrder || []).find((u) => !acted[u] && u !== cur && isBot(u));
     for (const c of cands) {
       if (R.needsPair(c)) {
@@ -474,9 +499,10 @@ export function botAction(state) {
       }
       return { type: 'dev-advance', cardId: c.id, dice: rollDie(), dev: cur, expect: { step } };
     }
-    // Si no hay nada que avanzar, revisar un PR libre (alimenta a QA).
-    const reviewCards = R.cardsInColumn(state.cards, a.id.review).filter(free);
-    if (reviewCards.length && R.hasRoom(state, a.id.qa)) {
+    // Si no hay nada que avanzar, revisar un PR libre (Urgent ignora el WIP de QA).
+    const reviewCards = R.cardsInColumn(state.cards, a.id.review)
+      .filter(free).filter((c) => !blocked || c.urgent).filter((c) => c.urgent || R.hasRoom(state, a.id.qa));
+    if (reviewCards.length) {
       return { type: 'dev-review', cardId: reviewCards[0].id, dice: rollDie(), dev: cur, expect: { step } };
     }
     // Nada útil que hacer: gasta su acción sin mover (no bloquea a los humanos).

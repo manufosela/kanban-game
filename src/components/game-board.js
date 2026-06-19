@@ -203,6 +203,7 @@ export class GameBoard extends LitElement {
     if (!this.game) return this.renderNoGame();
     return html`
       ${this.renderTopBar()}
+      ${R.urgentActive(this.game) ? html`<div class="urgent-banner">🔥 Historia <strong>URGENT</strong> en curso: el desarrollo normal está en pausa hasta sacarla.</div>` : ''}
       ${this.flash ? html`<div class="playflash">🎲 ${this.flash}</div>` : ''}
       <div class="playarea">
         <div class="playmain">
@@ -302,6 +303,7 @@ export class GameBoard extends LitElement {
             ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" @click=${() => this.pause()}>⏸ Pausar</button>` : ''}
             ${this.isMod && g.status === 'paused' ? html`<button class="btn-primary btn-sm" @click=${() => this.resume()}>▶ Reanudar</button>` : ''}
             ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" @click=${() => this.addRound()}>➕ Añadir ronda</button>` : ''}
+            ${this.isMod && g.status === 'playing' && g.wipEnabled ? html`<button class="btn-sm btn-danger" @click=${() => this.act('inject-urgent')}>🔥 Meter Urgent</button>` : ''}
             ${this.isMod ? html`<button class="btn-sm btn-danger" @click=${() => this.restartGame()}>🔄 Reiniciar</button>` : ''}
           </div>
         </div>
@@ -410,14 +412,27 @@ export class GameBoard extends LitElement {
     const cols = this.cols();
     const a = this.anchors();
     const selStep = g.step;
+    const byPri = (x, y) => (R.priorityOf(y) - R.priorityOf(x)) || (x.number - y.number);
+    const hasUrgent = g.wipEnabled && Object.values(g.cards || {}).some((c) => c.urgent && c.col !== a.id.done);
+    const gridStyle = `grid-template-columns: repeat(${cols.length}, minmax(150px, 1fr))`;
     return html`
       <div class="board-scroll">
-        <div class="board" style="grid-template-columns: repeat(${cols.length}, minmax(150px, 1fr))">
+        ${hasUrgent ? html`
+          <div class="urgent-lane">
+            <div class="urgent-head">🔥 URGENT · ignora el WIP y va antes que el resto del desarrollo</div>
+            <div class="board" style=${gridStyle}>
+              ${cols.map((c) => html`<div class="ulane-cell">
+                ${R.cardsInColumn(g.cards, c.id).filter((card) => card.urgent).sort(byPri).map((card) => this.renderCard(card, c, a, selStep))}
+              </div>`)}
+            </div>
+          </div>` : ''}
+        <div class="board" style=${gridStyle}>
           ${cols.map((c, i) => {
-            // Mostrar por prioridad (mayor primero); las no estimadas mantienen su orden por número.
+            // Mostrar por prioridad (mayor primero); las urgentes van en su propio carril arriba.
             const cards = R.cardsInColumn(g.cards, c.id)
+              .filter((card) => !(hasUrgent && card.urgent))
               .slice()
-              .sort((x, y) => (R.priorityOf(y) - R.priorityOf(x)) || (x.number - y.number));
+              .sort(byPri);
             const limit = R.wipLimitFor(g, c.id);
             const hasLimit = limit !== Infinity;
             const over = hasLimit && cards.length > limit;
@@ -454,12 +469,13 @@ export class GameBoard extends LitElement {
     const qaValid = step === STEP.QA && card.col === a.id.qa;
     let selectable = false;
     if (qaValid) selectable = this.canAct;
-    else if (devValid) selectable = (this.isMod || this.iAmPendingDev) && !claimedByOther;
+    else if (devValid) selectable = (this.isMod || this.iAmPendingDev) && !claimedByOther && (!R.urgentActive(this.game) || card.urgent);
     const selected = this.selectedCardId === card.id || claimedByMe;
     return html`
-      <div class="postit ${card.bug ? 'bug' : ''} ${selected ? 'sel' : ''} ${selectable ? 'pick' : ''} ${R.needsPair(card) ? 'big' : ''} ${claimedByOther ? 'claimed' : ''}"
+      <div class="postit ${card.bug ? 'bug' : ''} ${selected ? 'sel' : ''} ${selectable ? 'pick' : ''} ${R.needsPair(card) ? 'big' : ''} ${claimedByOther ? 'claimed' : ''} ${card.urgent ? 'urgent' : ''}"
            data-cid=${card.id}
            @click=${() => this.onCardClick(card, step, selectable)}>
+        ${card.urgent ? html`<span class="urgentmark" title="Urgent">🔥</span>` : ''}
         <span class="num">#${card.number}</span>
         ${card.business ? html`<span class="pts" title="Negocio ${card.business} · Dev ${card.dev ?? '—'}">${card.business}<span class="sep">/</span>${card.dev ?? '·'}</span>` : ''}
         ${R.needsPair(card) ? html`<span class="pairmark" title="Fibonacci > 8: se hace en pair">👥</span>` : ''}
@@ -551,8 +567,11 @@ export class GameBoard extends LitElement {
       const cid = this.myClaimId;
       useCard = cid ? g.cards[cid] : null;
     } else {
-      const adv = R.advanceSources(g).flatMap((col) => R.cardsInColumn(g.cards, col)).filter(free).sort((x, y) => R.priorityOf(y) - R.priorityOf(x));
-      useCard = adv[0] || R.cardsInColumn(g.cards, a.id.review).filter(free)[0] || null;
+      const blocked = R.urgentActive(g);
+      const adv = R.advanceSources(g).flatMap((col) => R.cardsInColumn(g.cards, col))
+        .filter(free).filter((c) => !blocked || c.urgent)
+        .sort((x, y) => (Number(!!y.urgent) - Number(!!x.urgent)) || (R.priorityOf(y) - R.priorityOf(x)));
+      useCard = adv[0] || R.cardsInColumn(g.cards, a.id.review).filter(free).filter((c) => !blocked || c.urgent)[0] || null;
     }
     const isReview = !!useCard && useCard.col === a.id.review;
     const action = isReview ? 'review' : 'advance';
@@ -707,6 +726,13 @@ export class GameBoard extends LitElement {
       kbg-game .postit .pairmark { position: absolute; bottom: -7px; right: -5px; font-size: .82rem; }
       kbg-game .postit .claimmark { position: absolute; top: -8px; left: -6px; font-size: .82rem; }
       kbg-game .postit.claimed { opacity: .5; filter: grayscale(.4); }
+      kbg-game .postit.urgent { background: var(--c-postit-bug, #ffd0d0); outline: 2px solid #ff3b3b; box-shadow: 0 0 12px rgba(255,59,59,.5); }
+      kbg-game .postit .urgentmark { position: absolute; top: -9px; left: -7px; font-size: .9rem; }
+      kbg-game .urgent-lane { border: 2px solid #ff3b3b; border-radius: 10px; background: rgba(255,59,59,.07); padding: 6px; margin-bottom: 10px; }
+      kbg-game .urgent-head { color: #ff7a7a; font-weight: 700; font-size: .82rem; margin: 2px 6px 8px; }
+      kbg-game .urgent-lane .board { min-height: 0; }
+      kbg-game .ulane-cell { min-height: 64px; display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start; padding: 4px; }
+      kbg-game .urgent-banner { margin: 0 0 12px; padding: 10px 16px; border-radius: 8px; background: #3a1414; border-left: 4px solid #ff3b3b; font-weight: 600; }
       kbg-game .postit .bugmark { position: absolute; top: -8px; right: -6px; font-size: .9rem; }
       kbg-game .controls { margin-top: 14px; }
       kbg-game .logfeed { margin: 0; }

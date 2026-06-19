@@ -246,3 +246,26 @@ describe('totales entregados en Done', () => {
     expect(R.doneDev(s)).toBe(13);
   });
 });
+
+describe('Urgent (expedite)', () => {
+  it('urgentActive detecta una urgente no terminada', () => {
+    const s = buildState();
+    putCard(s, 'u', 1, ID.desarrollo); s.cards.u.urgent = true;
+    expect(R.urgentActive(s)).toBe(true);
+    s.cards.u.col = ID.done;
+    expect(R.urgentActive(s)).toBe(false);
+  });
+  it('una historia Urgent avanza aunque el destino esté lleno (ignora WIP)', () => {
+    const s = buildState({ round: 2, wipEnabled: true });
+    // Llenar Desarrollo (WIP 3) y meter una urgente en Análisis.
+    putCard(s, 'a', 1, ID.desarrollo);
+    putCard(s, 'b', 2, ID.desarrollo);
+    putCard(s, 'c', 3, ID.desarrollo);
+    putCard(s, 'u', 4, ID.analisis); s.cards.u.urgent = true;
+    const normal = R.devAdvance(s, 'a'); // a no puede (origen desarrollo, destino review WIP 2 ok) -> usar análisis bloqueada
+    const out = R.devAdvance(s, 'u');
+    expect(out.ok).toBe(true);
+    expect(out.state.cards.u.col).toBe(ID.desarrollo);
+    expect(normal).toBeDefined();
+  });
+});
