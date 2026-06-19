@@ -233,16 +233,26 @@ function startDevsStep(s) {
   if (devs.length === 0) { pushLog(s, 'No hay Devs asignados.'); enterQaStep(s); }
   else s.step = STEP.DEVS;
 }
-/** Pasa a QA; si no hay historias que probar, salta directo a la validación del PM. */
+/** Pasa a QA; si no hay historias que probar, va a la validación (que a su vez puede saltarse). */
 function enterQaStep(s) {
   const a = R.anchors(R.orderedColumns(s.columns));
   if (R.cardsInColumn(s.cards, a.id.qa).length === 0) {
-    s.step = STEP.PM_VALIDATE;
-    pushLog(s, 'No hay historias en QA; el turno pasa a la validación del PM.');
+    pushLog(s, 'No hay historias en QA.');
+    enterValidateStep(s);
   } else {
     s.step = STEP.QA;
     s.qaRolls = 0;
     pushLog(s, 'Turno de QA.');
+  }
+}
+/** Validación del PM; si no hay nada en Validación PM, cierra el turno sin tirar. */
+function enterValidateStep(s) {
+  const a = R.anchors(R.orderedColumns(s.columns));
+  if (R.cardsInColumn(s.cards, a.id.validation).length === 0) {
+    pushLog(s, 'No hay nada que validar; fin del turno.');
+    endTurn(s);
+  } else {
+    s.step = STEP.PM_VALIDATE;
   }
 }
 /** Dev al que le toca actuar (el primero del orden que no ha actuado), o null. */
@@ -288,6 +298,13 @@ const HANDLERS = {
     s.nextNumber = added.nextNumber;
     s.step = STEP.PM_PULL;
     pushLog(s, `El PM mete ${R.STORIES_PER_TURN} historias nuevas en Backlog.`);
+    return {};
+  },
+  // Paso 1 (alternativa) — el PM no mete historias nuevas este turno (no inundar el backlog).
+  'pm-skip-add': (s) => {
+    if (s.step !== STEP.PM_ADD) return {};
+    s.step = STEP.PM_PULL;
+    pushLog(s, 'El PM no mete historias nuevas este turno.');
     return {};
   },
 
@@ -435,8 +452,8 @@ const HANDLERS = {
   // Paso 4 -> 5
   'qa-finish': (s) => {
     if (s.step !== STEP.QA) return {};
-    s.step = STEP.PM_VALIDATE;
-    pushLog(s, 'QA termina. El PM va a validar.');
+    pushLog(s, 'QA termina.');
+    enterValidateStep(s);
     return {};
   },
 
@@ -477,7 +494,11 @@ export function botAction(state) {
   const cols = R.orderedColumns(state.columns);
   const a = R.anchors(cols);
   const step = state.step;
-  if (step === STEP.PM_ADD) return { type: 'pm-add', expect: { step } };
+  if (step === STEP.PM_ADD) {
+    // No inundar: si el backlog ya tiene mucho sin refinar, no mete más.
+    const backlog = R.cardsInColumn(state.cards, a.id.backlog).length;
+    return { type: backlog > R.STORIES_PER_TURN * 3 ? 'pm-skip-add' : 'pm-add', expect: { step } };
+  }
   if (step === STEP.PM_PULL) return { type: 'pm-pull', dice: rollDie(), expect: { step } };
   if (step === STEP.PM_VALIDATE) return { type: 'pm-validate', dice: rollDie(), expect: { step } };
   if (step === STEP.QA) {
