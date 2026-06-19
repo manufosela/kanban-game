@@ -230,8 +230,20 @@ function startDevsStep(s) {
   const devs = devUids(s);
   s.devOrder = devs;
   s.devActed = {};
-  if (devs.length === 0) { s.step = STEP.QA; s.qaRolls = 0; pushLog(s, 'No hay Devs asignados; pasa a QA.'); }
+  if (devs.length === 0) { pushLog(s, 'No hay Devs asignados.'); enterQaStep(s); }
   else s.step = STEP.DEVS;
+}
+/** Pasa a QA; si no hay historias que probar, salta directo a la validación del PM. */
+function enterQaStep(s) {
+  const a = R.anchors(R.orderedColumns(s.columns));
+  if (R.cardsInColumn(s.cards, a.id.qa).length === 0) {
+    s.step = STEP.PM_VALIDATE;
+    pushLog(s, 'No hay historias en QA; el turno pasa a la validación del PM.');
+  } else {
+    s.step = STEP.QA;
+    s.qaRolls = 0;
+    pushLog(s, 'Turno de QA.');
+  }
 }
 /** Dev al que le toca actuar (el primero del orden que no ha actuado), o null. */
 export function currentDev(s) {
@@ -243,7 +255,7 @@ function markDevActed(s, uids) {
   s.devActed = { ...(s.devActed || {}) };
   for (const u of uids) if (u) s.devActed[u] = true;
   const all = (s.devOrder || []).every((u) => s.devActed[u]);
-  if (all) { s.step = STEP.QA; s.qaRolls = 0; pushLog(s, 'Todos los Devs han actuado. Turno de QA.'); }
+  if (all) { pushLog(s, 'Todos los Devs han actuado.'); enterQaStep(s); }
 }
 
 const HANDLERS = {
@@ -334,9 +346,8 @@ const HANDLERS = {
   // Paso 3 -> 4 (cierre forzado por PM/admin)
   'dev-finish': (s) => {
     if (s.step !== STEP.DEVS) return {};
-    s.step = STEP.QA;
-    s.qaRolls = 0;
-    pushLog(s, 'Se cierra el paso de Devs. Turno de QA.');
+    pushLog(s, 'Se cierra el paso de Devs.');
+    enterQaStep(s);
     return {};
   },
 
@@ -414,12 +425,7 @@ export function botAction(state) {
   if (step === STEP.DEVS) {
     const cur = currentDev(state);
     if (!cur) return { type: 'dev-finish', expect: { step } };
-    // Preferir revisar PR si hay y QA tiene hueco (alimenta a QA).
-    const reviewCards = R.cardsInColumn(state.cards, a.id.review);
-    if (reviewCards.length && R.hasRoom(state, a.id.qa)) {
-      return { type: 'dev-review', cardId: reviewCards[0].id, dice: rollDie(), expect: { step, dev: cur } };
-    }
-    // Avanzar: candidatas con hueco en destino, por prioridad (mayor primero).
+    // Primero DESARROLLAR: avanzar la historia de mayor prioridad con hueco en destino.
     const cands = R.advanceSources(state)
       .flatMap((colId) => (R.hasRoom(state, R.nextColumnId(state, colId)) ? R.cardsInColumn(state.cards, colId) : []))
       .sort((x, y) => R.priorityOf(y) - R.priorityOf(x));
@@ -430,6 +436,11 @@ export function botAction(state) {
         continue; // historia grande sin compañero: probar otra
       }
       return { type: 'dev-advance', cardId: c.id, dice: rollDie(), expect: { step, dev: cur } };
+    }
+    // Si no hay nada que avanzar, entonces revisar un PR pendiente (alimenta a QA).
+    const reviewCards = R.cardsInColumn(state.cards, a.id.review);
+    if (reviewCards.length && R.hasRoom(state, a.id.qa)) {
+      return { type: 'dev-review', cardId: reviewCards[0].id, dice: rollDie(), expect: { step, dev: cur } };
     }
     return { type: 'dev-finish', expect: { step } };
   }
