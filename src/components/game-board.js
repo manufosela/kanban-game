@@ -520,9 +520,12 @@ export class GameBoard extends LitElement {
   }
 
   ctrlPmAdd() {
-    return html`<div class="controls card">
-      <p>El PM mete <strong>3 historias</strong> nuevas en Backlog.</p>
-      <button class="btn-primary btn-lg" @click=${() => this.act('pm-add')}>➕ Meter 3 historias</button>
+    return html`<div class="controls card stack">
+      <p>El PM puede meter <strong>3 historias</strong> nuevas en Backlog, o saltar si ya hay suficiente.</p>
+      <div class="row">
+        <button class="btn-primary btn-lg" @click=${() => this.act('pm-add')}>➕ Meter 3 historias</button>
+        <button class="btn-lg" @click=${() => this.act('pm-skip-add')}>⏭ No meter (saltar)</button>
+      </div>
     </div>`;
   }
 
