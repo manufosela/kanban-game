@@ -5,7 +5,7 @@ import {
   renameBoard, setBoardColumns, assignToTeam, unassignFromTeam,
   addInvited, deleteInvited, setInvitedAssignment, normalizeEmail,
   setUserDefaultRole, setInvitedRole,
-  isBotId, addBotToTeam, removeBotFromTeam, setBotRole, getBoard,
+  isBotId, addBotToTeam, removeBotFromTeam, setBotRole, getBoard, removeUser,
   watchPartidas, createPartida, renamePartida, deletePartida,
   watchPartidaSession, updatePartidaSession,
   watchPartidaFacilitators, setPartidaFacilitator, findUserPartida,
@@ -270,7 +270,9 @@ export class AdminPanel extends LitElement {
       rows.push({ kind: 'member', id: u.id, name: u.name || u.email, email: u.email, photoURL: u.photoURL, role: (t && t.members[u.id]) || '', team: t, isAdmin: u.role === 'admin' });
     });
     this.pInvited.forEach((iv) => {
-      rows.push({ kind: 'invited', id: iv.id, name: iv.name || iv.email, email: iv.email, role: iv.role || '', teamId: iv.teamId, dup: realNorms.has(normalizeEmail(iv.email)) });
+      // Oculta pre-registros que ya tienen cuenta real equivalente (el real ya aparece).
+      if (realNorms.has(normalizeEmail(iv.email))) return;
+      rows.push({ kind: 'invited', id: iv.id, name: iv.name || iv.email, email: iv.email, role: iv.role || '', teamId: iv.teamId });
     });
     this.users.filter((u) => !assigned.has(u.id)).forEach((u) => {
       rows.push({ kind: 'free', id: u.id, name: u.name || u.email, email: u.email, photoURL: u.photoURL, role: u.defaultRole || '', isAdmin: u.role === 'admin' });
@@ -305,9 +307,7 @@ export class AdminPanel extends LitElement {
       ? (r.isAdmin ? html`<span class="tag admin">admin</span>` : html`<span class="tag" style="background:#1f3a2a;color:#9ff0c0">en equipo</span>`)
       : r.kind === 'free'
         ? (r.isAdmin ? html`<span class="tag admin">admin</span>` : html`<span class="tag">con cuenta</span>`)
-        : (r.dup
-          ? html`<span class="tag" style="background:#5a1d1d;color:#ffd7d7" title="Ya existe una cuenta con un correo equivalente; este pre-registro sobra">ya tiene cuenta</span>`
-          : html`<span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span>`);
+        : html`<span class="tag" style="background:#3a3416;color:#ffe08a">pendiente</span>`;
     let teamCell;
     if (r.kind === 'member') {
       teamCell = html`<span class="tag">${r.team?.name || '—'}</span> <button class="btn-sm btn-danger" @click=${() => this.removeFromTeam(r)}>Quitar</button>`;
@@ -318,7 +318,9 @@ export class AdminPanel extends LitElement {
     }
     const action = r.kind === 'invited'
       ? html`<button class="btn-sm btn-danger" @click=${() => this.removeInvited({ id: r.id, email: r.email })}>Eliminar</button>`
-      : html`<button class="btn-sm" @click=${() => this.toggleAdmin({ id: r.id, role: r.isAdmin ? 'admin' : 'player', name: r.name, email: r.email })}>${r.isAdmin ? 'Quitar admin' : 'Hacer admin'}</button>`;
+      : html`
+        <button class="btn-sm" @click=${() => this.toggleAdmin({ id: r.id, role: r.isAdmin ? 'admin' : 'player', name: r.name, email: r.email })}>${r.isAdmin ? 'Quitar admin' : 'Hacer admin'}</button>
+        ${r.id === this.me?.uid ? '' : html`<button class="btn-sm btn-danger" @click=${() => this.expelUser(r)}>Expulsar</button>`}`;
     return html`
       <tr>
         <td>${icon}</td>
@@ -350,6 +352,24 @@ export class AdminPanel extends LitElement {
   async removeFromTeam(r) {
     await unassignFromTeam(r.team, r.id);
     toast(`${r.name} fuera del equipo`, 'info');
+  }
+  async expelUser(r) {
+    const ok = await confirmDialog(`¿Expulsar a ${r.name || r.email}? Se cerrará su sesión y saldrá del juego. Si vuelve a entrar, reaparecerá.`, { title: 'Expulsar', danger: true });
+    if (!ok) return;
+    await removeUser(r.id);
+    toast(`${r.name || r.email} expulsado`, 'success');
+  }
+  /** Limpia (una vez) los pre-registros que ya tienen cuenta real equivalente. */
+  updated() {
+    if (!this.currentPartidaId) return;
+    const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
+    this._cleanedInv = this._cleanedInv || new Set();
+    for (const iv of this.pInvited) {
+      if (realNorms.has(normalizeEmail(iv.email)) && !this._cleanedInv.has(iv.id)) {
+        this._cleanedInv.add(iv.id);
+        deleteInvited(iv.id);
+      }
+    }
   }
   /** Modal para asignar una persona (usuario real o pendiente) a un equipo con un rol. */
   openAssignToTeam(person) {

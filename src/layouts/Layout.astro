@@ -60,12 +60,28 @@ const { title = 'Kanban Game', header = true } = Astro.props;
     {header && (
       <script>
         import { watchSession, signOutUser } from '../lib/session.js';
+        import { watchUser } from '../lib/db.js';
 
         const headerEl = document.getElementById('appHeader');
         const navEl = document.getElementById('appNav');
         const chipEl = document.getElementById('userChip');
 
+        // Guard en vivo: si un admin borra tu registro, se cierra tu sesión al instante.
+        let offSelf = null; let watchedUid = null;
+        function watchOwnAccount(uid) {
+          if (uid === watchedUid) return;
+          if (offSelf) { offSelf(); offSelf = null; }
+          watchedUid = uid || null;
+          if (!uid) return;
+          let seen = false;
+          offSelf = watchUser(uid, (rec) => {
+            if (rec) { seen = true; return; }
+            if (seen) { signOutUser().then(() => window.location.replace('/')); }
+          });
+        }
+
         watchSession(({ user, profile }) => {
+          watchOwnAccount(user ? user.uid : null);
           if (!user || !profile) { headerEl.hidden = true; return; }
           headerEl.hidden = false;
 
