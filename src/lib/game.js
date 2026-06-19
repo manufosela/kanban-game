@@ -499,26 +499,30 @@ export function botAction(state) {
     const claims = state.claims || {};
     const free = (c) => !claims[c.id] || claims[c.id] === cur;
     const blocked = R.urgentActive(state); // si hay Urgent, solo se trabaja la Urgent
-    // Primero DESARROLLAR: Urgent antes que nada, luego por prioridad. Urgent ignora el WIP.
-    const cands = R.advanceSources(state)
-      .flatMap((colId) => R.cardsInColumn(state.cards, colId))
-      .filter(free)
-      .filter((c) => c.urgent || R.hasRoom(state, R.nextColumnId(state, c.col)))
-      .filter((c) => !blocked || c.urgent)
-      .sort((x, y) => (Number(!!y.urgent) - Number(!!x.urgent)) || (R.priorityOf(y) - R.priorityOf(x)));
+    const cols = R.orderedColumns(state.columns);
+    const colIdx = (cid) => cols.findIndex((c) => c.id === cid);
     const botPartner = (state.devOrder || []).find((u) => !acted[u] && u !== cur && isBot(u));
-    for (const c of cands) {
-      if (R.needsPair(c)) {
-        if (botPartner) return { type: 'dev-pair', cardId: c.id, dice: [rollDie(), rollDie()], partner: botPartner, dev: cur, expect: { step } };
+    // "Terminar antes que empezar": revisar PR (Revisión PR→QA) es lo más aguas abajo,
+    // luego empujar lo más avanzado; empezar trabajo nuevo de Refinement es lo último.
+    const reviewMoves = R.cardsInColumn(state.cards, a.id.review)
+      .filter(free).filter((c) => !blocked || c.urgent).filter((c) => c.urgent || R.hasRoom(state, a.id.qa))
+      .map((c) => ({ c, type: 'review', rank: 1000 }));
+    const advMoves = R.advanceSources(state)
+      .flatMap((colId) => R.cardsInColumn(state.cards, colId))
+      .filter(free).filter((c) => !blocked || c.urgent)
+      .filter((c) => c.urgent || R.hasRoom(state, R.nextColumnId(state, c.col)))
+      .map((c) => ({ c, type: 'advance', rank: colIdx(c.col) }));
+    const moves = [...reviewMoves, ...advMoves].sort((m1, m2) =>
+      (Number(!!m2.c.urgent) - Number(!!m1.c.urgent)) // Urgent primero
+      || (m2.rank - m1.rank)                          // más aguas abajo primero
+      || (R.priorityOf(m2.c) - R.priorityOf(m1.c)));  // luego por prioridad
+    for (const m of moves) {
+      if (m.type === 'review') return { type: 'dev-review', cardId: m.c.id, dice: rollDie(), dev: cur, expect: { step } };
+      if (R.needsPair(m.c)) {
+        if (botPartner) return { type: 'dev-pair', cardId: m.c.id, dice: [rollDie(), rollDie()], partner: botPartner, dev: cur, expect: { step } };
         continue; // grande sin otro bot: probar otra
       }
-      return { type: 'dev-advance', cardId: c.id, dice: rollDie(), dev: cur, expect: { step } };
-    }
-    // Si no hay nada que avanzar, revisar un PR libre (Urgent ignora el WIP de QA).
-    const reviewCards = R.cardsInColumn(state.cards, a.id.review)
-      .filter(free).filter((c) => !blocked || c.urgent).filter((c) => c.urgent || R.hasRoom(state, a.id.qa));
-    if (reviewCards.length) {
-      return { type: 'dev-review', cardId: reviewCards[0].id, dice: rollDie(), dev: cur, expect: { step } };
+      return { type: 'dev-advance', cardId: m.c.id, dice: rollDie(), dev: cur, expect: { step } };
     }
     // Nada útil que hacer (WIP lleno, todo cogido, o solo queda Urgent ajena): pasa.
     return { type: 'dev-pass', dev: cur, expect: { step } };

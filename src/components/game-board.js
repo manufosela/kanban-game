@@ -576,10 +576,12 @@ export class GameBoard extends LitElement {
       useCard = cid ? g.cards[cid] : null;
     } else {
       const blocked = R.urgentActive(g);
-      const adv = R.advanceSources(g).flatMap((col) => R.cardsInColumn(g.cards, col))
-        .filter(free).filter((c) => !blocked || c.urgent)
-        .sort((x, y) => (Number(!!y.urgent) - Number(!!x.urgent)) || (R.priorityOf(y) - R.priorityOf(x)));
-      useCard = adv[0] || R.cardsInColumn(g.cards, a.id.review).filter(free).filter((c) => !blocked || c.urgent)[0] || null;
+      const allCols = this.cols();
+      const colIdx = (cid) => allCols.findIndex((c) => c.id === cid);
+      const rev = R.cardsInColumn(g.cards, a.id.review).filter(free).filter((c) => !blocked || c.urgent).map((c) => ({ c, rank: 1000 }));
+      const adv = R.advanceSources(g).flatMap((col) => R.cardsInColumn(g.cards, col)).filter(free).filter((c) => !blocked || c.urgent).map((c) => ({ c, rank: colIdx(c.col) }));
+      const moves = [...rev, ...adv].sort((m1, m2) => (Number(!!m2.c.urgent) - Number(!!m1.c.urgent)) || (m2.rank - m1.rank) || (R.priorityOf(m2.c) - R.priorityOf(m1.c)));
+      useCard = moves[0]?.c || null;
     }
     const isReview = !!useCard && useCard.col === a.id.review;
     const action = isReview ? 'review' : 'advance';
