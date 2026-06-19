@@ -1,6 +1,6 @@
 import { LitElement, html } from 'lit';
 import {
-  watchBoard, watchUsers, watchFacilitators, watchBots, isBotId,
+  watchBoard, watchBoards, watchUsers, watchFacilitators, watchBots, isBotId,
   getBoard, getTeam, getPartida,
 } from '../lib/db.js';
 import {
@@ -54,13 +54,14 @@ export class GameBoard extends LitElement {
     super.connectedCallback();
     this._wb = watchBoard(this.boardId, (b) => { this.board = b; });
     this._wg = watchGame(this.boardId, (g) => { this.game = g; });
+    this._wbl = watchBoards((l) => { this.allBoards = l; });
     this._wu = watchUsers((l) => { this.users = l; });
     this._wf = watchFacilitators((l) => { this.facilitators = l; });
     this._wbots = watchBots((l) => { this.bots = l; });
   }
   disconnectedCallback() {
     super.disconnectedCallback();
-    this._wb?.(); this._wg?.(); this._wu?.(); this._wf?.(); this._wbots?.();
+    this._wb?.(); this._wg?.(); this._wbl?.(); this._wu?.(); this._wf?.(); this._wbots?.();
     if (this._botTimer) { clearTimeout(this._botTimer); this._botTimer = null; }
     this._ghostLayer?.remove(); this._ghostLayer = null;
   }
@@ -76,6 +77,19 @@ export class GameBoard extends LitElement {
     this.maybeDriveBots();
     this.animateMoves();
     this.detectFlash();
+    this.maybeFollowActiveBoard();
+  }
+  /** Si este tablero ya terminó y otro tablero mío está en juego (p.ej. la ronda con WIP), entra a él. */
+  maybeFollowActiveBoard() {
+    if (this.isMod) return; // el moderador no se mueve solo
+    const me = this.me?.uid;
+    if (!me || !this.allBoards) return;
+    if (this.game && this.game.status === 'playing') return; // sigo jugando aquí
+    const target = this.allBoards.find((b) => b.id !== this.boardId && b.status === 'playing' && b.roleAssignments && b.roleAssignments[me]);
+    if (target && !sessionStorage.getItem('kbg.entered.' + target.id)) {
+      sessionStorage.setItem('kbg.entered.' + target.id, '1');
+      window.location.href = '/board?id=' + target.id;
+    }
   }
   /** Anima las historias que han cambiado de posición con un "fantasma" que vuela por encima. */
   animateMoves() {
