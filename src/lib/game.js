@@ -161,10 +161,11 @@ export async function applyAction(boardId, action) {
     resultMsg = out?.msg || null;
     return s;
   });
-  // Si la ronda acaba de terminar, archiva sus resultados para la comparativa.
+  // Si la ronda acaba de terminar, archiva resultados y marca el tablero como terminado.
   const finalState = res?.snapshot?.exists() ? res.snapshot.val() : null;
   if (finalState && finalState.status === 'finished') {
     await archiveResults(boardId, finalState);
+    await runTransaction(ref(db, `boards/${boardId}/status`), () => 'finished');
   }
   return resultMsg;
 }
