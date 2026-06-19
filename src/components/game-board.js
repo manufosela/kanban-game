@@ -216,6 +216,21 @@ export class GameBoard extends LitElement {
   }
   async pause() { await pauseGame(this.boardId); }
   async resume() { await resumeGame(this.boardId); }
+  /** Reinicia esta ronda desde cero (mismo modo y configuración). Borra el progreso. */
+  async restartGame() {
+    const g = this.game;
+    if (!g) return;
+    const ok = await confirmDialog('¿Reiniciar la ronda desde cero? Se borra el progreso actual del tablero y las historias se vuelven a generar (con la puntuación nueva).', { title: 'Reiniciar ronda', danger: true });
+    if (!ok) return;
+    await startGame(this.board, {
+      wipEnabled: !!g.wipEnabled,
+      rondas: g.rondas ?? 3,
+      ciclos: g.ciclos ?? 5,
+      timeLimitMinutes: g.timeLimit ? Math.round(g.timeLimit / 60) : null,
+      pauseBetweenRounds: !!g.pauseBetweenRounds,
+    });
+    toast('Ronda reiniciada', 'success');
+  }
   renderPaused() {
     return html`<div class="controls card center stack">
       <h2 style="margin:0">⏸ Partida en pausa</h2>
@@ -261,6 +276,7 @@ export class GameBoard extends LitElement {
             ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" @click=${() => this.pause()}>⏸ Pausar</button>` : ''}
             ${this.isMod && g.status === 'paused' ? html`<button class="btn-primary btn-sm" @click=${() => this.resume()}>▶ Reanudar</button>` : ''}
             ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" @click=${() => this.addRound()}>➕ Añadir ronda</button>` : ''}
+            ${this.isMod ? html`<button class="btn-sm btn-danger" @click=${() => this.restartGame()}>🔄 Reiniciar</button>` : ''}
           </div>
         </div>
       </div>
