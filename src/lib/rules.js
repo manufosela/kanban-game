@@ -59,8 +59,10 @@ export function countRoles(roleAssignments) {
 }
 /**
  * WIP sugerido por columna según el equipo (capacidad): Desarrollo = nº devs,
- * Revisión PR ≈ mitad de devs, QA = nº QA, Refinement/Validación = PM+1.
- * Backlog y Done no se limitan. Devuelve { colId: wip }.
+ * Revisión PR ≈ mitad de devs, QA = nº QA, Validación = PM+1.
+ * Refinement es un BUFFER de entrada (como Backlog/Done): no se limita, para que
+ * desarrollo nunca se quede sin historias refinadas (negocio refina por delante).
+ * El WIP solo aplica a las columnas de trabajo activo. Devuelve { colId: wip }.
  */
 export function suggestedWipByAnchor(columns, roleAssignments) {
   const a = anchors(orderedColumns(columns));
@@ -69,7 +71,6 @@ export function suggestedWipByAnchor(columns, roleAssignments) {
   const qa = Math.max(1, c.QA);
   const pm = Math.max(1, c.PM);
   return {
-    [a.id.analysis]: Math.max(2, dev + pm), // Refinement: lo refinan negocio + ingeniería → nº devs + nº PMs
     [a.id.devReturn]: dev,                  // Desarrollo: 1 por dev
     [a.id.review]: Math.max(1, Math.ceil(dev / 2)), // Revisión PR: review es más ligero
     [a.id.qa]: qa,                          // QA: 1 por QA
@@ -86,7 +87,7 @@ export function urgentActive(state) {
 export function defaultColumns() {
   return [
     { name: 'Backlog', wipLimit: null },
-    { name: 'Refinement', wipLimit: 2 },
+    { name: 'Refinement', wipLimit: null }, // buffer de entrada: sin WIP (negocio refina por delante)
     { name: 'Desarrollo', wipLimit: 3 },
     { name: 'Revisión PR', wipLimit: 2 },
     { name: 'QA', wipLimit: 2 },

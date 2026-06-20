@@ -80,12 +80,12 @@ describe('paso 2: PM backlog -> análisis', () => {
     expect(R.countInColumn(state.cards, ID.backlog)).toBe(1);
   });
 
-  it('respeta el WIP de análisis en ronda 2', () => {
+  it('Refinement es buffer sin WIP: mueve hasta el dado aun en ronda 2', () => {
     let s = buildState({ round: 2, wipEnabled: true });
     s = R.addBacklogStories(s, 5);
-    const { state, moved } = R.pmPullToAnalysis(s, 4); // WIP análisis = 2
-    expect(moved).toBe(2);
-    expect(R.countInColumn(state.cards, ID.analisis)).toBe(2);
+    const { state, moved } = R.pmPullToAnalysis(s, 4); // Refinement sin límite
+    expect(moved).toBe(4);
+    expect(R.countInColumn(state.cards, ID.analisis)).toBe(4);
   });
 });
 
@@ -174,10 +174,14 @@ describe('paso 5: PM valida -> Done', () => {
 describe('WIP desacoplado del número de ronda', () => {
   it('aplica WIP en cualquier ronda si wipEnabled=true', () => {
     const s = buildState({ round: 3, wipEnabled: true });
-    expect(R.wipLimitFor(s, ID.analisis)).toBe(2);
+    expect(R.wipLimitFor(s, ID.desarrollo)).toBe(3);
   });
   it('no aplica WIP aunque sea ronda 2 si wipEnabled=false', () => {
     const s = buildState({ round: 2, wipEnabled: false });
+    expect(R.wipLimitFor(s, ID.desarrollo)).toBe(Infinity);
+  });
+  it('Refinement nunca tiene WIP (buffer de entrada)', () => {
+    const s = buildState({ round: 2, wipEnabled: true });
     expect(R.wipLimitFor(s, ID.analisis)).toBe(Infinity);
   });
 });
@@ -278,8 +282,12 @@ describe('WIP por equipo', () => {
     const s = buildState();
     const wip = R.suggestedWipByAnchor(s.columns, { a: 'DEV', b: 'DEV', c: 'DEV', d: 'QA', e: 'PM' });
     expect(wip[ID.desarrollo]).toBe(3);
-    expect(wip[ID.analisis]).toBe(4);
     expect(wip[ID.qa]).toBe(1);
+  });
+  it('Refinement no recibe WIP sugerido (es buffer)', () => {
+    const s = buildState();
+    const wip = R.suggestedWipByAnchor(s.columns, { a: 'DEV', b: 'DEV', c: 'PM' });
+    expect(wip[ID.analisis]).toBeUndefined();
   });
 });
 
