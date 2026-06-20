@@ -69,11 +69,11 @@ export function suggestedWipByAnchor(columns, roleAssignments) {
   const qa = Math.max(1, c.QA);
   const pm = Math.max(1, c.PM);
   return {
-    [a.id.analysis]: pm + 1,
-    [a.id.devReturn]: dev,
-    [a.id.review]: Math.max(1, Math.ceil(dev / 2)),
-    [a.id.qa]: qa,
-    [a.id.validation]: pm + 1,
+    [a.id.analysis]: Math.max(2, dev + pm), // Refinement: lo refinan negocio + ingeniería → nº devs + nº PMs
+    [a.id.devReturn]: dev,                  // Desarrollo: 1 por dev
+    [a.id.review]: Math.max(1, Math.ceil(dev / 2)), // Revisión PR: review es más ligero
+    [a.id.qa]: qa,                          // QA: 1 por QA
+    [a.id.validation]: pm + 1,              // Validación PM
   };
 }
 /** ¿Hay alguna historia Urgent en curso (no terminada)? Bloquea el desarrollo normal. */

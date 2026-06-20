@@ -278,6 +278,7 @@ describe('WIP por equipo', () => {
     const s = buildState();
     const wip = R.suggestedWipByAnchor(s.columns, { a: 'DEV', b: 'DEV', c: 'DEV', d: 'QA', e: 'PM' });
     expect(wip[ID.desarrollo]).toBe(3);
+    expect(wip[ID.analisis]).toBe(4);
     expect(wip[ID.qa]).toBe(1);
   });
 });
