@@ -281,3 +281,22 @@ describe('WIP por equipo', () => {
     expect(wip[ID.qa]).toBe(1);
   });
 });
+
+describe('mazo reproducible (sin WIP -> con WIP)', () => {
+  it('addBacklogStories usa el negocio del deck si existe', () => {
+    let s = buildState();
+    s.deck = { 1: { business: 4, dev: 8 }, 2: { business: 2, dev: null } };
+    s = R.addBacklogStories(s, 2);
+    const cards = R.cardsInColumn(s.cards, ID.backlog).sort((a, b) => a.number - b.number);
+    expect(cards[0].business).toBe(4);
+    expect(cards[1].business).toBe(2);
+  });
+  it('pmPullToAnalysis recupera el dev del deck al refinar', () => {
+    let s = buildState();
+    s.deck = { 1: { business: 5, dev: 8 } };
+    s = R.addBacklogStories(s, 1);
+    const { state } = R.pmPullToAnalysis(s, 1);
+    const c = R.cardsInColumn(state.cards, ID.analisis)[0];
+    expect(c.dev).toBe(8);
+  });
+});

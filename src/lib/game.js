@@ -52,8 +52,16 @@ export async function startGame(board, { wipEnabled = false, rondas = 2, ciclos 
   const M = Math.max(1, Number(rondas) || 1);
   const N = Math.max(1, Number(ciclos) || 1);
   const limitMin = Number(timeLimitMinutes) > 0 ? Number(timeLimitMinutes) : null;
+  // Con WIP: reproduce el mazo (negocio/dev) guardado de la ronda sin WIP, para una comparativa justa.
+  let deck = null;
+  if (wipEnabled && board.teamId) {
+    const ds = await get(ref(db, `teams/${board.teamId}/storyDeck`));
+    deck = ds.exists() ? ds.val() : null;
+  }
   const state = {
     round: 1,
+    teamId: board.teamId || null,
+    deck: deck || null,
     wipEnabled: !!wipEnabled,
     rondas: M,
     ciclos: N,
@@ -175,6 +183,14 @@ export async function applyAction(boardId, action) {
   if (finalState && finalState.status === 'finished') {
     await archiveResults(boardId, finalState);
     await runTransaction(ref(db, `boards/${boardId}/status`), () => 'finished');
+    // Si terminó la ronda SIN WIP, guarda el mazo (negocio/dev por historia) para replicarlo con WIP.
+    if (!finalState.wipEnabled && finalState.teamId) {
+      const deck = {};
+      for (const c of Object.values(finalState.cards || {})) {
+        if (c && c.number != null && !c.urgent) deck[c.number] = { business: c.business ?? null, dev: c.dev ?? null };
+      }
+      await set(ref(db, `teams/${finalState.teamId}/storyDeck`), deck);
+    }
   }
   return resultMsg;
 }

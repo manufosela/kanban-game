@@ -192,9 +192,12 @@ export function addBacklogStories(state, n = STORIES_PER_TURN) {
   const cols = orderedColumns(s.columns);
   const backlogId = anchors(cols).id.backlog;
   let next = s.nextNumber || 1;
+  const deck = s.deck || null; // mazo guardado de la ronda sin WIP (réplica en con WIP)
   for (let i = 0; i < n; i++) {
     const id = `s${next}`;
-    s.cards[id] = { id, number: next, col: backlogId, bug: false, business: randomBusiness(), dev: null };
+    const dk = deck && deck[next];
+    const business = (dk && dk.business != null) ? dk.business : randomBusiness();
+    s.cards[id] = { id, number: next, col: backlogId, bug: false, business, dev: null };
     next++;
   }
   s.nextNumber = next;
@@ -211,6 +214,7 @@ export function pmPullToAnalysis(state, dice) {
   const a = anchors(cols);
   let s = state;
   let moved = 0;
+  const deck = state.deck || null; // réplica del esfuerzo guardado (ronda sin WIP)
   // Entran en Refinement las de MAYOR puntos de negocio primero.
   const backlog = cardsInColumn(s.cards, a.id.backlog)
     .slice()
@@ -219,8 +223,11 @@ export function pmPullToAnalysis(state, dice) {
     if (moved >= dice) break;
     if (!hasRoom(s, a.id.analysis)) break;
     s = moveCard(s, card.id, a.id.analysis);
-    // Estimación Fibonacci al entrar en Refinement (si no la tenía).
-    if (!s.cards[card.id].dev) s.cards[card.id].dev = randomFib();
+    // Estimación Fibonacci al refinar: recupera la guardada si existe; si no, al azar.
+    if (!s.cards[card.id].dev) {
+      const dk = deck && deck[s.cards[card.id].number];
+      s.cards[card.id].dev = (dk && dk.dev != null) ? dk.dev : randomFib();
+    }
     moved++;
   }
   return { state: s, moved };
