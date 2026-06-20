@@ -35,6 +35,10 @@ function toList(obj) {
 export async function setUserRole(uid, role) {
   await update(ref(db, `users/${uid}`), { role });
 }
+/** Estado de acceso del usuario: 'active' (entra) o 'pending' (en espera de aprobación). */
+export async function setUserStatus(uid, status) {
+  await update(ref(db, `users/${uid}`), { status });
+}
 /** Rol de juego por defecto (real) de una persona. */
 export async function setUserDefaultRole(uid, role) {
   await update(ref(db, `users/${uid}`), { defaultRole: role || null });

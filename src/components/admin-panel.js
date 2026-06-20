@@ -1,7 +1,7 @@
 import { LitElement, html } from 'lit';
 import {
   watchUsers, watchTeams, watchBoards, watchInvited, watchBots,
-  setUserRole, createTeam, renameTeam, deleteTeam,
+  setUserRole, setUserStatus, createTeam, renameTeam, deleteTeam,
   renameBoard, setBoardColumns, assignToTeam, unassignFromTeam,
   addInvited, deleteInvited, setInvitedAssignment, normalizeEmail,
   setUserDefaultRole, setInvitedRole,
@@ -130,8 +130,8 @@ export class AdminPanel extends LitElement {
     const facOnly = this.me?.facilitatorOnly;
     // Sin partida seleccionada: el admin ve el listado de partidas; el co-facilitador espera a su routing.
     if (!this.currentPartidaId) {
-      if (facOnly) return html`<div class="card"><p class="muted">No tienes ninguna partida asignada como co-facilitador. Pide a un administrador que te asigne a una.</p></div>`;
-      return this.renderPartidas();
+      if (facOnly) return html`${this.renderPendingApprovals()}<div class="card"><p class="muted">No tienes ninguna partida asignada como co-facilitador. Pide a un administrador que te asigne a una.</p></div>`;
+      return html`${this.renderPendingApprovals()}${this.renderPartidas()}`;
     }
     const p = this.currentPartida();
     const tab = facOnly ? 'facilitator' : this.tab;
@@ -141,6 +141,7 @@ export class AdminPanel extends LitElement {
           ${p?.isDemo ? html`<span class="tag" style="background:#1f3a2a;color:#9ff0c0">demo</span>` : ''}</h1>
         ${facOnly ? '' : html`<button @click=${() => this.leavePartida()}>← Todas las partidas</button>`}
       </div>
+      ${this.renderPendingApprovals()}
       ${facOnly ? '' : html`
         <div class="row tabs" style="margin:12px 0; gap:6px">
           ${this._tab('people', '👤 Personas')}
@@ -151,6 +152,39 @@ export class AdminPanel extends LitElement {
       ${tab === 'teams' ? this.renderTeams() : ''}
       ${tab === 'facilitator' ? this.renderFacilitator() : ''}
     `;
+  }
+
+  /** Aviso de usuarios en standby (dominio no autorizado) pendientes de aprobación. */
+  renderPendingApprovals() {
+    const pending = (this.users || []).filter((u) => u.status === 'pending');
+    if (pending.length === 0) return '';
+    return html`
+      <div class="card stack" style="margin:12px 0; border:1px solid var(--c-warning)">
+        <h3 style="margin:0">⏳ Accesos pendientes (${pending.length})</h3>
+        <p class="muted" style="margin:0">Cuentas fuera del dominio autorizado, en espera. Acéptalas para que puedan entrar.</p>
+        <table class="t">
+          <tbody>
+            ${pending.map((u) => html`<tr>
+              <td>${u.name || '—'}</td>
+              <td class="muted">${u.email || ''}</td>
+              <td style="text-align:right; white-space:nowrap">
+                <button class="btn-sm btn-primary" @click=${() => this.approveUser(u)}>✓ Aceptar</button>
+                <button class="btn-sm" @click=${() => this.rejectUser(u)}>✕ Rechazar</button>
+              </td>
+            </tr>`)}
+          </tbody>
+        </table>
+      </div>`;
+  }
+  async approveUser(u) {
+    await setUserStatus(u.id, 'active');
+    toast(`${u.name || u.email} aceptado`, 'success');
+  }
+  async rejectUser(u) {
+    const ok = await confirmDialog(`¿Rechazar y eliminar a ${u.name || u.email}?`, { title: 'Rechazar acceso' });
+    if (!ok) return;
+    await removeUser(u.id);
+    toast('Acceso rechazado', 'success');
   }
 
   // ---------------- Partidas (entidad raíz) ----------------

@@ -13,6 +13,11 @@ import Layout from '../layouts/Layout.astro';
       <button id="googleBtn" class="btn-primary btn-lg">
         <span style="margin-right:8px">🔑</span> Entrar con Google
       </button>
+      <div id="pending" hidden>
+        <p style="margin:0 0 6px">⏳ <strong>Acceso pendiente de aprobación</strong></p>
+        <p class="muted">Tu cuenta no es del dominio autorizado. Un facilitador debe aceptarte antes de entrar; vuelve a iniciar sesión cuando te avisen.</p>
+        <button id="logoutBtn" class="btn-sm">Cerrar sesión</button>
+      </div>
       <p class="muted small" id="status"></p>
     </div>
     <ul class="features">
@@ -37,14 +42,30 @@ import Layout from '../layouts/Layout.astro';
   </style>
 
   <script>
-    import { watchSession, signInWithGoogle } from '../lib/session.js';
+    import { watchSession, signInWithGoogle, signOutUser } from '../lib/session.js';
     import { toast } from '../lib/ui.js';
 
     const status = document.getElementById('status');
+    const pendingBox = document.getElementById('pending');
+    const googleBtn = document.getElementById('googleBtn');
 
-    // Si ya hay sesión, al dashboard.
-    const unsub = watchSession(({ user }) => {
-      if (user) { unsub(); window.location.replace('/dashboard'); }
+    // Si ya hay sesión: si está activo → dashboard; si está pendiente → aviso de espera.
+    const unsub = watchSession(({ user, profile }) => {
+      if (!user) return;
+      if (profile?.status === 'pending') {
+        status.textContent = '';
+        googleBtn.hidden = true;
+        pendingBox.hidden = false;
+        return;
+      }
+      unsub();
+      window.location.replace('/dashboard');
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await signOutUser();
+      pendingBox.hidden = true;
+      googleBtn.hidden = false;
     });
 
     document.getElementById('googleBtn').addEventListener('click', async () => {
