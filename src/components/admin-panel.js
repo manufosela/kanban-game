@@ -110,7 +110,8 @@ export class AdminPanel extends LitElement {
   // ---- Listas filtradas a la partida activa (las colecciones son planas con partidaId) ----
   get pTeams() { return this.teams.filter((t) => t.partidaId === this.currentPartidaId); }
   get pBoards() { return this.boards.filter((b) => b.partidaId === this.currentPartidaId); }
-  get pInvited() { return this.invited.filter((iv) => iv.partidaId === this.currentPartidaId); }
+  // Personas de esta partida + las "libres" (sin partida, p.ej. de una partida borrada): reutilizables.
+  get pInvited() { return this.invited.filter((iv) => iv.partidaId === this.currentPartidaId || iv.partidaId == null); }
   /** uids reales que son miembros de algún equipo de la partida activa. */
   partidaUserIds() {
     const s = new Set();
@@ -466,7 +467,12 @@ export class AdminPanel extends LitElement {
       const u = userByEmail.get(norm);
       const iv = invByEmail.get(norm);
       if (u) { haveAccount.push(u.name || email); continue; }
-      if (iv) { (iv.partidaId === this.currentPartidaId ? inThis : inOther).push(name); continue; }
+      if (iv) {
+        if (iv.partidaId === this.currentPartidaId) inThis.push(name);
+        else if (iv.partidaId == null) { await addInvited(email, name, this.currentPartidaId); added += 1; } // reutiliza persona libre
+        else inOther.push(name);
+        continue;
+      }
       await addInvited(email, name, this.currentPartidaId); added += 1;
     }
     this.querySelector('#invEmails').value = '';

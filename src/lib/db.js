@@ -101,6 +101,15 @@ export async function deleteTeam(team) {
     updates[`games/${bid}`] = null;
     updates[`results/${bid}`] = null;
   }
+  // Coherencia: las personas NO se borran; se desasignan de este equipo.
+  for (const mid of Object.keys(team.members || {})) {
+    if (!isBotId(mid)) { updates[`users/${mid}/teamId`] = null; updates[`users/${mid}/gameRole`] = null; }
+  }
+  const invitedSnap = await get(ref(db, 'invitedUsers'));
+  const invited = invitedSnap.val() || {};
+  for (const [k, inv] of Object.entries(invited)) {
+    if (inv.teamId === team.id) updates[`invitedUsers/${k}/teamId`] = null;
+  }
   await update(ref(db), updates);
 }
 
@@ -292,9 +301,14 @@ export async function deletePartida(pid) {
     updates[`games/${bid}`] = null;
     updates[`results/${bid}`] = null;
   }
+  // Coherencia: NO se borran las personas al borrar la partida; se DESASOCIAN
+  // (quedan libres y reutilizables). Solo se borran equipos/tableros/juegos.
   const invited = invitedSnap.val() || {};
   for (const [k, inv] of Object.entries(invited)) {
-    if (inv.partidaId === pid) updates[`invitedUsers/${k}`] = null;
+    if (inv.partidaId === pid) {
+      updates[`invitedUsers/${k}/partidaId`] = null;
+      updates[`invitedUsers/${k}/teamId`] = null;
+    }
   }
   const bots = botsSnap.val() || {};
   for (const [botId, bot] of Object.entries(bots)) {
@@ -383,7 +397,14 @@ export async function addInvited(email, name, partidaId = null) {
 }
 export async function deleteInvited(key) { await remove(ref(db, `invitedUsers/${key}`)); }
 export async function setInvitedAssignment(key, teamId, role) {
-  await update(ref(db, `invitedUsers/${key}`), { teamId: teamId || null, role: role || null });
+  const patch = { teamId: teamId || null, role: role || null };
+  // Al asignar a un equipo, re-asocia la persona a la partida de ese equipo
+  // (cubre el caso de personas libres reutilizadas de una partida borrada).
+  if (teamId) {
+    const ts = await get(ref(db, `teams/${teamId}`));
+    if (ts.exists()) patch.partidaId = ts.val().partidaId || null;
+  }
+  await update(ref(db, `invitedUsers/${key}`), patch);
 }
 
 /**
