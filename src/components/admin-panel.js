@@ -244,7 +244,7 @@ export class AdminPanel extends LitElement {
     await addBotToTeam(team, 'DEV', 'Bot Dev 3');
     await addBotToTeam(team, 'QA', 'Bot QA');
     const board = await getBoard(team.boardNoWip);
-    await startGame(board, { wipEnabled: false, rondas: 2, ciclos: 10, timeLimitMinutes: null });
+    await startGame(board, { wipEnabled: false, rondas: 2, ciclos: 7, timeLimitMinutes: null });
     toast('Partida demo creada, ¡a jugar!', 'success');
     location.href = `/board?id=${team.boardNoWip}`;
   }
@@ -656,7 +656,7 @@ export class AdminPanel extends LitElement {
     await startGame(board, {
       wipEnabled: false,
       rondas: this.session?.rondas ?? 2,
-      ciclos: this.session?.ciclos ?? 10,
+      ciclos: this.session?.ciclos ?? 7,
       timeLimitMinutes: this.session?.timeLimitMinutes ?? null,
     });
     toast('Demo creada, ¡a jugar!', 'success');
@@ -826,7 +826,7 @@ export class AdminPanel extends LitElement {
     const modeBoards = this.pBoards.filter((b) => b.mode === mode);
     const anyPlaying = modeBoards.some((b) => b.status === 'playing');
     const rondas = this.session?.rondas ?? 2;
-    const ciclos = this.session?.ciclos ?? 10;
+    const ciclos = this.session?.ciclos ?? 7;
     const teamless = modeBoards.filter((b) => !this.teams.find((t) => t.id === b.teamId));
     const emptyTeams = modeBoards.filter((b) => this.teamCounts(b.teamId).total === 0);
     const anyPending = modeBoards.some((b) => this.teamCounts(b.teamId).pend > 0);
@@ -845,7 +845,7 @@ export class AdminPanel extends LitElement {
           <div><label>Tiempo máx. partida (min)</label><input id="sessTime" type="number" min="0" .value=${this.session?.timeLimitMinutes ?? ''} placeholder="sin límite" style="width:150px"></div>
           <label style="margin:0"><input id="sessPause" type="checkbox" ?checked=${this.session?.pauseBetweenRounds}> Parar entre rondas</label>
           <button class="btn-sm" @click=${() => this.saveSessionConfig()}>💾 Guardar</button>
-          <span class="muted">Total: ${rondas * ciclos} ciclos. Igual en ambos modos. Partidas más largas (≥20) muestran mejor el efecto del WIP.</span>
+          <span class="muted">Total: ${rondas * ciclos} ciclos (~${Math.round(rondas * ciclos * 1.3)} min/tablero). Igual en ambos modos. Más ciclos = efecto WIP más nítido pero sesión más larga.</span>
         </div>
 
         <h3 style="margin:6px 0 0">Tableros del modo ${mode === 'wip' ? 'CON WIP' : 'SIN WIP'} (${modeBoards.length})</h3>
@@ -975,7 +975,7 @@ export class AdminPanel extends LitElement {
     if (problems.length) return toast('No se puede iniciar: ' + problems.join('; '), 'error', 6000);
     if (modeBoards.some((b) => b.status === 'playing')) return toast('Hay partidas en curso.', 'warning');
     const rondas = this.session?.rondas ?? 2;
-    const ciclos = this.session?.ciclos ?? 10;
+    const ciclos = this.session?.ciclos ?? 7;
     const ok = await confirmDialog(`¿Iniciar la partida ${mode === 'wip' ? 'con WIP' : 'sin WIP'} (${rondas}×${ciclos} = ${rondas * ciclos} ciclos) en ${modeBoards.length} tablero(s)?`, { title: 'Iniciar partida' });
     if (!ok) return;
     await startPartidaForBoards(modeBoards, mode, { rondas, ciclos, timeLimitMinutes: this.session?.timeLimitMinutes ?? null, pauseBetweenRounds: this.session?.pauseBetweenRounds || false });
