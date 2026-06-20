@@ -92,11 +92,15 @@ export class ResultsView extends LitElement {
         <div class="flex-between">
           <h2 style="margin:0">Partida ${g.wipEnabled ? 'con WIP' : 'sin WIP'} ${g.status === 'finished' ? '(terminada)' : `(ciclo ${g.turn}/${g.totalCycles || '?'})`}</h2>
           <div class="row">
-            <span class="tag">✅ Done: <strong>${R.doneTotal(g)}</strong></span>
-            <span class="tag">💼 Negocio: <strong>${R.doneBusiness(g)}</strong></span>
-            <span class="tag">🔧 Dev: <strong>${R.doneDev(g)}</strong></span>
-            ${this.cycleTag(snaps, g.columns)}
-            ${bn ? html`<span class="tag role-QA">🍶 Cuello de botella: ${bn.name}</span>` : ''}
+            ${(() => { const m = R.gameMetrics(g); return html`
+            <span class="tag">✅ Done: <strong>${m.doneTotal}</strong></span>
+            <span class="tag">💼 Negocio: <strong>${m.doneBusiness}</strong></span>
+            <span class="tag">🔧 Dev: <strong>${m.doneDev}</strong></span>
+            <span class="tag">📈 Throughput: <strong>${this.fmtNum(m.throughputPerTurn, 2)}</strong>/turno</span>
+            ${m.avgCycleTime != null ? html`<span class="tag">⏱️ Ciclo: <strong>${this.fmtNum(m.avgCycleTime, 1)}</strong> turnos</span>` : ''}
+            <span class="tag">📦 WIP medio: <strong>${this.fmtNum(m.avgActiveWip, 1)}</strong></span>
+            ${m.reworkRate != null ? html`<span class="tag">♻️ Retrabajo: <strong>${this.fmtPct(m.reworkRate)}</strong></span>` : ''}
+            ${bn ? html`<span class="tag role-QA">🍶 Cuello: ${bn.name}</span>` : ''}`; })()}
           </div>
         </div>
         ${hasData ? html`
@@ -114,16 +118,37 @@ export class ResultsView extends LitElement {
     const t = R.avgCycleTime(snaps, columns);
     return t == null ? '' : html`<span class="tag">⏱️ Tiempo de ciclo: <strong>${t.toFixed(1)}</strong> turnos</span>`;
   }
+  /** Métricas de una ronda archivada (usa las guardadas; si no, las recalcula). */
+  roundMetrics(r) {
+    if (r.metrics) return r.metrics;
+    return {
+      avgCycleTime: R.avgCycleTime(r.snapshots, r.columns),
+      avgActiveWip: R.avgActiveWip(r.snapshots, r.columns),
+      peakActiveWip: R.peakActiveWip(r.snapshots, r.columns),
+      throughputPerTurn: R.throughputPerTurn(r.snapshots),
+      reworkRate: null, devEfficiency: null,
+    };
+  }
+  fmtNum(x, d = 1) { return x == null ? '—' : x.toFixed(d); }
+  fmtPct(x) { return x == null ? '—' : `${Math.round(x * 100)}%`; }
+  /** Fila comparativa: resalta el mejor valor (menor o mayor según `better`). */
+  metricRow(label, hint, vals, better, fmt) {
+    const nums = better ? vals.filter((v) => typeof v === 'number') : [];
+    const best = nums.length ? (better === 'low' ? Math.min(...nums) : Math.max(...nums)) : null;
+    return html`<tr>
+      <td>${label} ${hint ? html`<span class="muted">(${hint})</span>` : ''}</td>
+      ${vals.map((v) => html`<td class=${v != null && v === best && nums.length > 1 ? 'pos' : ''}>${fmt(v)}</td>`)}
+    </tr>`;
+  }
 
   renderComparison(rounds) {
     const data = rounds.map((r) => ({
       ...r,
       bn: this.bottleneckOf(r.snapshots, r.columns),
-      cycle: R.avgCycleTime(r.snapshots, r.columns),
+      m: this.roundMetrics(r),
     }));
-    const maxDone = Math.max(...data.map((r) => r.doneTotal || 0));
-    const cycles = data.map((r) => r.cycle).filter((c) => c != null);
-    const minCycle = cycles.length ? Math.min(...cycles) : null;
+    data.forEach((r) => { r.cycle = r.m.avgCycleTime; });
+    const col = (sel) => data.map(sel);
     return html`
       <div class="card stack" style="margin-top:14px">
         <h2 style="margin:0">Comparativa del equipo: sin WIP vs con WIP</h2>
@@ -133,12 +158,20 @@ export class ResultsView extends LitElement {
               ${data.map((r) => html`<th>${r.wipEnabled ? 'Con WIP' : 'Sin WIP'}<br><span class="muted">ronda ${r.round}</span></th>`)}
             </tr></thead>
             <tbody>
-              <tr><td>Historias en Done</td>${data.map((r) => html`<td class=${r.doneTotal === maxDone ? 'pos' : ''}><strong>${r.doneTotal}</strong></td>`)}</tr>
-              <tr><td>💼 Valor de negocio</td>${data.map((r) => html`<td>${r.doneBusiness ?? '—'}</td>`)}</tr>
-              <tr><td>🔧 Esfuerzo dev</td>${data.map((r) => html`<td>${r.doneDev ?? '—'}</td>`)}</tr>
-              <tr><td>⏱️ Tiempo de ciclo <span class="muted">(menos = mejor)</span></td>${data.map((r) => html`<td class=${r.cycle != null && r.cycle === minCycle ? 'pos' : ''}>${this.fmtCycle(r.cycle)}</td>`)}</tr>
-              <tr><td>Cuello de botella</td>${data.map((r) => html`<td>${r.bn?.name || '—'}</td>`)}</tr>
-              <tr><td>Duración</td>${data.map((r) => html`<td>${this.fmtDur(r.durationSec)}</td>`)}</tr>
+              <tr class="group"><td colspan=${data.length + 1}>Entrega</td></tr>
+              ${this.metricRow('✅ Historias en Done', 'más = mejor', col((r) => r.doneTotal ?? null), 'high', (v) => html`<strong>${this.fmtNum(v, 0)}</strong>`)}
+              ${this.metricRow('💼 Valor de negocio', 'más = mejor', col((r) => r.doneBusiness ?? null), 'high', (v) => this.fmtNum(v, 0))}
+              ${this.metricRow('🔧 Esfuerzo dev entregado', 'más = mejor', col((r) => r.doneDev ?? null), 'high', (v) => this.fmtNum(v, 0))}
+              ${this.metricRow('📈 Throughput', 'historias/turno', col((r) => r.m.throughputPerTurn), 'high', (v) => this.fmtNum(v, 2))}
+              <tr class="group"><td colspan=${data.length + 1}>Flujo</td></tr>
+              ${this.metricRow('⏱️ Tiempo de ciclo', 'turnos · menos = mejor', col((r) => r.m.avgCycleTime), 'low', (v) => this.fmtCycle(v))}
+              ${this.metricRow('📦 WIP medio', 'menos = mejor', col((r) => r.m.avgActiveWip), 'low', (v) => this.fmtNum(v, 1))}
+              ${this.metricRow('🔺 Pico de WIP', 'menos = mejor', col((r) => r.m.peakActiveWip), 'low', (v) => this.fmtNum(v, 0))}
+              ${this.metricRow('🍶 Cuello de botella', '', col((r) => r.bn?.name ?? null), null, (v) => v || '—')}
+              <tr class="group"><td colspan=${data.length + 1}>Calidad y eficiencia</td></tr>
+              ${this.metricRow('♻️ Retrabajo (bugs QA)', 'menos = mejor', col((r) => r.m.reworkRate), 'low', (v) => this.fmtPct(v))}
+              ${this.metricRow('⚙️ Eficiencia Dev', 'acciones útiles · más = mejor', col((r) => r.m.devEfficiency), 'high', (v) => this.fmtPct(v))}
+              ${this.metricRow('⏲️ Duración real', '', col((r) => r.durationSec ?? null), null, (v) => this.fmtDur(v))}
             </tbody>
           </table>
         </div>
@@ -179,8 +212,9 @@ export class ResultsView extends LitElement {
       kbg-results table.cmp { width: 100%; border-collapse: collapse; }
       kbg-results table.cmp th, kbg-results table.cmp td { padding: 8px 10px; border-bottom: 1px solid var(--c-border); text-align: left; }
       kbg-results table.cmp th { color: var(--c-text-soft); font-size: .85rem; }
-      kbg-results .pos { color: var(--c-success); }
+      kbg-results .pos { color: var(--c-success); font-weight: 600; }
       kbg-results .neg { color: var(--c-warning); }
+      kbg-results table.cmp tr.group td { background: var(--c-bg-soft); color: var(--c-text-soft); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; padding-top: 10px; }
       kbg-results h3 { font-size: .95rem; color: var(--c-text-soft); margin: 8px 0; }
     </style>`;
   }
