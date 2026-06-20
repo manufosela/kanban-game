@@ -524,19 +524,31 @@ export class GameBoard extends LitElement {
     const selected = this.selectedCardId === card.id || claimedByMe;
     // Tarea normal en pausa porque hay una urgencia en curso (no está en Backlog ni Done).
     const paused = !card.urgent && R.urgentActive(this.game) && card.col !== a.id.backlog && card.col !== a.id.done;
+    const prio = R.priorityOf(card);
+    const prioClass = prio >= 150 ? 'hi' : prio >= 80 ? 'mid' : prio > 0 ? 'lo' : '';
+    const fullTitle = card.title
+      ? `#${card.number} · ${card.title} · 💼${card.business ?? '—'} / 🔧${card.dev ?? '—'}${prio ? ` · prioridad ${prio}` : ''}`
+      : `#${card.number} · 💼${card.business ?? '—'} / 🔧${card.dev ?? '—'}`;
     return html`
       <div class="postit ${card.bug ? 'bug' : ''} ${selected ? 'sel' : ''} ${selectable ? 'pick' : ''} ${R.needsPair(card) ? 'big' : ''} ${claimedByOther ? 'claimed' : ''} ${card.urgent ? 'urgent' : ''} ${paused ? 'paused' : ''}"
-           data-cid=${card.id}
+           data-cid=${card.id} title=${fullTitle}
            @click=${() => this.onCardClick(card, step, selectable)}>
         ${card.urgent ? html`<span class="urgentmark" title="Urgent">🔥</span>` : ''}
         ${paused ? html`<span class="pausedmark" title="En pausa por la urgencia">⏸</span>` : ''}
+        ${card.title ? html`<button class="reveal" title="Ver título" @click=${(e) => this.revealTitle(e, card)}>📋</button>` : ''}
         <span class="num">#${card.number}</span>
         ${card.business ? html`<span class="pts" title="Negocio ${card.business} · Dev ${card.dev ?? '—'}">${card.business}<span class="sep">/</span>${card.dev ?? '·'}</span>` : ''}
+        ${prio ? html`<span class="prio ${prioClass}" title="Prioridad (valor/esfuerzo)">${prio}</span>` : ''}
         ${R.needsPair(card) ? html`<span class="pairmark" title="Fibonacci > 8: se hace en pair">👥</span>` : ''}
         ${claimer ? html`<span class="claimmark" title="${claimedByMe ? 'La tienes tú' : this.nameOf(claimer)}">${claimedByMe ? '✋' : '🔒'}</span>` : ''}
         ${card.bug ? html`<span class="bugmark" title="Tiene un bug">🐞</span>` : ''}
       </div>
     `;
+  }
+  revealTitle(e, card) {
+    e.stopPropagation();
+    const prio = R.priorityOf(card);
+    toast(`#${card.number} · ${card.title} — 💼 valor ${card.business ?? '—'} / 🔧 esfuerzo ${card.dev ?? '—'}${prio ? ` · prioridad ${prio}` : ''}`, 'info', 5000);
   }
   onCardClick(card, step, selectable) {
     if (!selectable) return;
@@ -783,6 +795,12 @@ export class GameBoard extends LitElement {
       kbg-game .postit .num { font-size: .95rem; line-height: 1; }
       kbg-game .postit .pts { font-size: .7rem; font-weight: 700; margin-top: 3px; opacity: .85; }
       kbg-game .postit .pts .sep { opacity: .5; margin: 0 1px; }
+      kbg-game .postit .prio { position: absolute; bottom: -7px; left: -6px; font-size: .6rem; font-weight: 800; color: #fff; background: #6b7280; border-radius: 999px; padding: 0 5px; line-height: 1.4; box-shadow: var(--shadow-1); }
+      kbg-game .postit .prio.hi { background: #16a34a; }
+      kbg-game .postit .prio.mid { background: #d97706; }
+      kbg-game .postit .prio.lo { background: #9ca3af; }
+      kbg-game .postit .reveal { position: absolute; top: -8px; right: -7px; border: none; background: #fff; color: #333; border-radius: 999px; width: 18px; height: 18px; font-size: .62rem; line-height: 1; padding: 0; cursor: pointer; box-shadow: var(--shadow-1); }
+      kbg-game .postit .reveal:hover { background: var(--c-primary); }
       kbg-game .postit.big { outline: 2px solid #b07cff; }
       kbg-game .postit .pairmark { position: absolute; bottom: -7px; right: -5px; font-size: .82rem; }
       kbg-game .postit .claimmark { position: absolute; top: -8px; left: -6px; font-size: .82rem; }

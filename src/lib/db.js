@@ -85,6 +85,10 @@ export async function createTeam(name, createdBy, partidaId = null) {
 export async function renameTeam(teamId, name) {
   await update(ref(db, `teams/${teamId}`), { name });
 }
+/** Asigna el backlog (proyecto ficticio) que jugará un equipo en ambas rondas. */
+export async function setTeamBacklog(teamId, backlogId) {
+  await update(ref(db, `teams/${teamId}`), { backlogId: backlogId || null });
+}
 export async function deleteTeam(team) {
   const updates = {};
   updates[`teams/${team.id}`] = null;

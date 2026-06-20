@@ -5,6 +5,7 @@ import { ref, onValue, runTransaction, get, set, update } from 'firebase/databas
 import { db } from './firebase.js';
 import * as R from './rules.js';
 import * as E from './engine.js';
+import { backlogById } from './backlogs.js';
 
 // Re-export del motor para no romper imports existentes (game-board, dashboard…).
 export {
@@ -30,13 +31,20 @@ export async function startGame(board, opts = {}) {
     }
     await update(ref(db), updates);
   }
+  // Backlog curado del equipo (mismos títulos/estimaciones en ambas rondas).
+  let storyList = null;
+  if (board.teamId) {
+    const bs = await get(ref(db, `teams/${board.teamId}/backlogId`));
+    const bk = bs.exists() ? backlogById(bs.val()) : null;
+    if (bk) storyList = bk.stories;
+  }
   // Con WIP: reproduce el mazo (negocio/dev) guardado de la ronda sin WIP, para una comparativa justa.
   let deck = null;
   if (wipEnabled && board.teamId) {
     const ds = await get(ref(db, `teams/${board.teamId}/storyDeck`));
     deck = ds.exists() ? ds.val() : null;
   }
-  const state = E.buildGameState(board, opts, deck, cols);
+  const state = E.buildGameState(board, { ...opts, storyList }, deck, cols);
   await runTransaction(ref(db, `games/${board.id}`), () => state);
   await runTransaction(ref(db, `boards/${board.id}/round`), () => 1);
   await runTransaction(ref(db, `boards/${board.id}/status`), () => 'playing');

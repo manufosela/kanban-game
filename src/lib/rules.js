@@ -42,10 +42,14 @@ export function randomBusiness() {
 export function randomFib() {
   return FIB_DECK[Math.floor(Math.random() * FIB_DECK.length)];
 }
-/** Prioridad de desarrollo = redondeo(dev / negocio × 100). Mayor = se coge antes. */
+/**
+ * Prioridad = redondeo(valor / esfuerzo × 100) = (negocio / dev × 100).
+ * Mayor = más valor por unidad de esfuerzo ⇒ se coge antes (Valor/Esfuerzo,
+ * como el modelo TRIBBU). Una historia 4/2 (prioridad 200) va antes que 2/8 (25).
+ */
 export function priorityOf(card) {
   if (!card || !card.dev || !card.business) return 0;
-  return Math.round((card.dev / card.business) * 100);
+  return Math.round((card.business / card.dev) * 100);
 }
 /** Una historia con Fibonacci > 8 debe desarrollarse en pair. */
 export function needsPair(card) {
@@ -193,12 +197,15 @@ export function addBacklogStories(state, n = STORIES_PER_TURN) {
   const cols = orderedColumns(s.columns);
   const backlogId = anchors(cols).id.backlog;
   let next = s.nextNumber || 1;
-  const deck = s.deck || null; // mazo guardado de la ronda sin WIP (réplica en con WIP)
+  const deck = s.deck || null;        // mazo guardado de la ronda sin WIP (réplica en con WIP)
+  const list = s.storyList || null;   // backlog curado del proyecto (título + estimación)
   for (let i = 0; i < n; i++) {
     const id = `s${next}`;
+    const item = list && list[next - 1];
     const dk = deck && deck[next];
-    const business = (dk && dk.business != null) ? dk.business : randomBusiness();
-    s.cards[id] = { id, number: next, col: backlogId, bug: false, business, dev: null };
+    const business = item ? item.b : ((dk && dk.business != null) ? dk.business : randomBusiness());
+    const title = item ? item.t : `Tarea genérica ${next}`;
+    s.cards[id] = { id, number: next, col: backlogId, bug: false, business, dev: null, title };
     next++;
   }
   s.nextNumber = next;
@@ -215,7 +222,8 @@ export function pmPullToAnalysis(state, dice) {
   const a = anchors(cols);
   let s = state;
   let moved = 0;
-  const deck = state.deck || null; // réplica del esfuerzo guardado (ronda sin WIP)
+  const deck = state.deck || null;       // réplica del esfuerzo guardado (ronda sin WIP)
+  const list = state.storyList || null;  // backlog curado del proyecto
   // Entran en Refinement las de MAYOR puntos de negocio primero.
   const backlog = cardsInColumn(s.cards, a.id.backlog)
     .slice()
@@ -224,10 +232,12 @@ export function pmPullToAnalysis(state, dice) {
     if (moved >= dice) break;
     if (!hasRoom(s, a.id.analysis)) break;
     s = moveCard(s, card.id, a.id.analysis);
-    // Estimación Fibonacci al refinar: recupera la guardada si existe; si no, al azar.
+    // Estimación Fibonacci al refinar: del backlog curado; si no, la guardada; si no, al azar.
     if (!s.cards[card.id].dev) {
-      const dk = deck && deck[s.cards[card.id].number];
-      s.cards[card.id].dev = (dk && dk.dev != null) ? dk.dev : randomFib();
+      const num = s.cards[card.id].number;
+      const item = list && list[num - 1];
+      const dk = deck && deck[num];
+      s.cards[card.id].dev = item ? item.d : ((dk && dk.dev != null) ? dk.dev : randomFib());
     }
     moved++;
   }

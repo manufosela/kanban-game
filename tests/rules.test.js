@@ -272,11 +272,14 @@ describe('gameMetrics (paquete completo)', () => {
 });
 
 describe('puntuación de historias', () => {
-  it('priorityOf = redondeo(dev/negocio*100)', () => {
-    expect(R.priorityOf({ dev: 5, business: 2 })).toBe(250);
-    expect(R.priorityOf({ dev: 3, business: 3 })).toBe(100);
-    expect(R.priorityOf({ dev: 8, business: 3 })).toBe(267);
+  it('priorityOf = redondeo(valor/esfuerzo*100); más valor por esfuerzo = más prioridad', () => {
+    expect(R.priorityOf({ business: 4, dev: 2 })).toBe(200); // alta
+    expect(R.priorityOf({ business: 3, dev: 3 })).toBe(100);
+    expect(R.priorityOf({ business: 2, dev: 8 })).toBe(25);  // baja
+    expect(R.priorityOf({ business: 3, dev: 8 })).toBe(38);
     expect(R.priorityOf({ dev: null, business: 3 })).toBe(0);
+    // 4/2 va antes que 2/8
+    expect(R.priorityOf({ business: 4, dev: 2 })).toBeGreaterThan(R.priorityOf({ business: 2, dev: 8 }));
   });
   it('needsPair solo si Fibonacci > 8', () => {
     expect(R.needsPair({ dev: 13 })).toBe(true);
@@ -371,5 +374,28 @@ describe('mazo reproducible (sin WIP -> con WIP)', () => {
     const { state } = R.pmPullToAnalysis(s, 1);
     const c = R.cardsInColumn(state.cards, ID.analisis)[0];
     expect(c.dev).toBe(8);
+  });
+});
+
+describe('backlog curado (proyectos ficticios)', () => {
+  it('asigna título y valor del storyList por orden; dev al refinar', () => {
+    let s = buildState();
+    s.storyList = [{ t: 'Login con Google', b: 4, d: 3 }, { t: 'Migrar histórico', b: 2, d: 13 }];
+    s = R.addBacklogStories(s, 2);
+    const cards = R.cardsInColumn(s.cards, ID.backlog).sort((a, b) => a.number - b.number);
+    expect(cards[0].title).toBe('Login con Google');
+    expect(cards[0].business).toBe(4);
+    expect(cards[0].dev).toBeNull();              // dev se asigna al refinar
+    const { state } = R.pmPullToAnalysis(s, 2);
+    const refined = R.cardsInColumn(state.cards, ID.analisis);
+    const login = refined.find((c) => c.number === 1);
+    expect(login.dev).toBe(3);
+  });
+  it('si se agota el storyList, usa "Tarea genérica N"', () => {
+    let s = buildState();
+    s.storyList = [{ t: 'Única', b: 3, d: 2 }];
+    s = R.addBacklogStories(s, 2);
+    const c2 = R.cardsInColumn(s.cards, ID.backlog).find((c) => c.number === 2);
+    expect(c2.title).toBe('Tarea genérica 2');
   });
 });
