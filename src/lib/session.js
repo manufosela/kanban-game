@@ -13,7 +13,7 @@ const provider = new GoogleAuthProvider();
 
 // Solo los correos de este dominio entran directamente; el resto quedan en
 // "standby" (status 'pending') hasta que un facilitador los acepte.
-export const ALLOWED_DOMAIN = 'tribuapp.com';
+export const ALLOWED_DOMAIN = 'tribbuapp.com';
 export function emailAllowed(email) {
   return typeof email === 'string' && email.toLowerCase().endsWith('@' + ALLOWED_DOMAIN);
 }
