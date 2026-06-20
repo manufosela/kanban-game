@@ -91,7 +91,10 @@ export class AdminPanel extends LitElement {
   /** Entra a una partida: scoping de toda la gestión + watchers de sesión/facilitadores de esa partida. */
   enterPartida(pid) {
     this.currentPartidaId = pid;
-    this.tab = this.me?.facilitatorOnly ? 'facilitator' : 'people';
+    let savedTab = null;
+    try { savedTab = localStorage.getItem('kbg.adminTab'); } catch { /* ignore */ }
+    const validTab = ['people', 'teams', 'facilitator'].includes(savedTab) ? savedTab : 'people';
+    this.tab = this.me?.facilitatorOnly ? 'facilitator' : validTab;
     this.selectedBoard = null;
     try { localStorage.setItem('kbg.partida', pid); } catch { /* ignore */ }
     this._ps?.(); this._pf?.();
@@ -286,7 +289,11 @@ export class AdminPanel extends LitElement {
   }
 
   _tab(id, label) {
-    return html`<button class=${this.tab === id ? 'btn-primary' : ''} @click=${() => { this.tab = id; }}>${label}</button>`;
+    return html`<button class=${this.tab === id ? 'btn-primary' : ''} @click=${() => this.selectTab(id)}>${label}</button>`;
+  }
+  selectTab(id) {
+    this.tab = id;
+    try { localStorage.setItem('kbg.adminTab', id); } catch { /* ignore */ }
   }
 
   // ---------------- Personas ----------------
