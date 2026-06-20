@@ -240,6 +240,35 @@ describe('tiempo de ciclo (Ley de Little)', () => {
     const snaps = [{ perColumn: { [ID.desarrollo]: 2 }, done: 0 }];
     expect(R.avgCycleTime(snaps, s.columns)).toBeNull();
   });
+  it('peakActiveWip es el máximo de WIP activo', () => {
+    const s = buildState();
+    const snaps = [
+      { perColumn: { [ID.desarrollo]: 2, [ID.qa]: 1 } },
+      { perColumn: { [ID.desarrollo]: 3, [ID.revision]: 2, [ID.qa]: 1 } },
+    ];
+    expect(R.peakActiveWip(snaps, s.columns)).toBe(6); // 3+2+1
+  });
+});
+
+describe('gameMetrics (paquete completo)', () => {
+  it('reúne entrega, flujo y calidad/eficiencia', () => {
+    const s = buildState();
+    putCard(s, 'a', 1, ID.done); s.cards.a.business = 3; s.cards.a.dev = 5;
+    putCard(s, 'b', 2, ID.done); s.cards.b.business = 2; s.cards.b.dev = 8;
+    s.snapshots = {
+      1: { perColumn: { [ID.desarrollo]: 3, [ID.qa]: 1, [ID.done]: 1 }, done: 1 },
+      2: { perColumn: { [ID.desarrollo]: 3, [ID.qa]: 1, [ID.done]: 2 }, done: 2 },
+    };
+    s.flow = { devMoves: 8, devBlocked: 1, devIdle: 1, bugs: 2, qaPass: 6, qaBlocked: 0, validated: 2 };
+    const m = R.gameMetrics(s);
+    expect(m.doneTotal).toBe(2);
+    expect(m.doneBusiness).toBe(5);
+    expect(m.doneDev).toBe(13);
+    expect(m.cycles).toBe(2);
+    expect(m.avgCycleTime).toBe(4);            // L=4, λ=1
+    expect(m.reworkRate).toBeCloseTo(2 / 8);   // bugs / (bugs+qaPass)
+    expect(m.devEfficiency).toBeCloseTo(8 / 10); // devMoves / (moves+blocked+idle)
+  });
 });
 
 describe('puntuación de historias', () => {

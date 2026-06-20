@@ -428,3 +428,51 @@ export function avgCycleTime(snapshots, columns) {
   if (L == null || !lambda) return null;
   return L / lambda;
 }
+
+/** Pico de WIP activo (máximo de historias en trabajo a la vez). */
+export function peakActiveWip(snapshots, columns) {
+  const arr = snapshotArray(snapshots);
+  if (!arr.length) return null;
+  const a = anchors(orderedColumns(columns));
+  const exclude = new Set([a.id.backlog, a.id.analysis, a.id.done]);
+  let peak = 0;
+  for (const snap of arr) {
+    let sum = 0;
+    for (const [colId, count] of Object.entries(snap.perColumn || {})) {
+      if (!exclude.has(colId)) sum += count;
+    }
+    if (sum > peak) peak = sum;
+  }
+  return peak;
+}
+
+/**
+ * Paquete de métricas de una partida terminada, para valorar TODO el trabajo:
+ * entrega (throughput, valor), flujo (tiempo de ciclo, WIP) y calidad/eficiencia
+ * (retrabajo, bloqueos, ociosidad). Lee snapshots + flow del estado final.
+ */
+export function gameMetrics(state) {
+  const snaps = state.snapshots || {};
+  const columns = state.columns;
+  const f = state.flow || {};
+  const arr = snapshotArray(snaps);
+  const qaTotal = (f.qaPass || 0) + (f.bugs || 0);
+  const devTotal = (f.devMoves || 0) + (f.devBlocked || 0) + (f.devIdle || 0);
+  return {
+    cycles: arr.length,
+    doneTotal: doneTotal(state),
+    doneBusiness: doneBusiness(state),
+    doneDev: doneDev(state),
+    avgCycleTime: avgCycleTime(snaps, columns),
+    avgActiveWip: avgActiveWip(snaps, columns),
+    peakActiveWip: peakActiveWip(snaps, columns),
+    throughputPerTurn: throughputPerTurn(snaps),
+    bugs: f.bugs || 0,
+    reworkRate: qaTotal > 0 ? (f.bugs || 0) / qaTotal : null,        // % de pruebas QA que fueron bug
+    devBlocked: f.devBlocked || 0,
+    devIdle: f.devIdle || 0,
+    devMoves: f.devMoves || 0,
+    devEfficiency: devTotal > 0 ? (f.devMoves || 0) / devTotal : null, // % de acciones de dev productivas
+    qaBlocked: f.qaBlocked || 0,
+  };
+}
