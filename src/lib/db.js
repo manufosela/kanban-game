@@ -396,6 +396,10 @@ export async function addInvited(email, name, partidaId = null) {
   return key;
 }
 export async function deleteInvited(key) { await remove(ref(db, `invitedUsers/${key}`)); }
+/** Marca/desmarca un pre-registro como futuro co-facilitador (se promueve al entrar). */
+export async function setInvitedFacilitator(key, on) {
+  await update(ref(db, `invitedUsers/${key}`), { facilitator: on ? true : null });
+}
 export async function setInvitedAssignment(key, teamId, role) {
   const patch = { teamId: teamId || null, role: role || null };
   // Al asignar a un equipo, re-asocia la persona a la partida de ese equipo
@@ -427,6 +431,9 @@ export async function claimInvitedOnLogin(user) {
     const ts = await get(ref(db, `teams/${inv.teamId}`));
     if (ts.exists()) await assignToTeam({ id: inv.teamId, ...ts.val() }, user.uid, inv.role || 'DEV');
   }
+  // Si estaba pre-designado como co-facilitador, promociónalo en su partida.
+  const withFac = matches.find(([, iv]) => iv.facilitator && iv.partidaId);
+  if (withFac) await setPartidaFacilitator(withFac[1].partidaId, user.uid, true);
   // Elimina todos los pre-registros equivalentes (ya tiene cuenta).
   const updates = {};
   for (const [k] of matches) updates[`invitedUsers/${k}`] = null;

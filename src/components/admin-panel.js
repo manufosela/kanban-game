@@ -3,7 +3,7 @@ import {
   watchUsers, watchTeams, watchBoards, watchInvited, watchBots,
   setUserRole, setUserStatus, createTeam, renameTeam, deleteTeam,
   renameBoard, setBoardColumns, assignToTeam, unassignFromTeam,
-  addInvited, deleteInvited, setInvitedAssignment, normalizeEmail,
+  addInvited, deleteInvited, setInvitedAssignment, setInvitedFacilitator, normalizeEmail,
   setUserDefaultRole, setInvitedRole,
   isBotId, addBotToTeam, removeBotFromTeam, setBotRole, getBoard, removeUser,
   watchPartidas, createPartida, renamePartida, deletePartida,
@@ -940,6 +940,9 @@ export class AdminPanel extends LitElement {
     const facSet = new Set(this.facilitators);
     // Co-facilitadores actuales: reales con el flag (los admin facilitan siempre, no se listan).
     const current = this.users.filter((u) => facSet.has(u.id) && u.role !== 'admin');
+    const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
+    // Pre-designados que aún no han entrado (se promueven al hacer login).
+    const pendingFac = this.pInvited.filter((iv) => iv.facilitator === true && !realNorms.has(normalizeEmail(iv.email)));
     return html`
       <div class="card stack" style="margin-top:12px">
         <div class="flex-between" style="flex-wrap:wrap; gap:6px">
@@ -947,8 +950,8 @@ export class AdminPanel extends LitElement {
           <button class="btn-sm btn-primary" @click=${() => this.openAddFacilitator()}>➕ Añadir co-facilitador</button>
         </div>
         <p class="muted" style="margin:0">Pueden moderar los tableros de esta partida (forzar pasos, WIP, rondas, roles) y ven solo esta partida, no las demás. Quítalos al terminar la sesión.</p>
-        <p class="muted" style="margin:0">ℹ️ Por seguridad, un co-facilitador debe <strong>haber entrado con Google al menos una vez</strong> (no hace falta que tenga equipo). En cuanto entre, aparecerá aquí para marcarlo.</p>
-        ${current.length === 0 ? html`<p class="muted" style="margin:0">Aún no hay co-facilitadores. Pulsa «Añadir co-facilitador».</p>` : html`
+        <p class="muted" style="margin:0">ℹ️ Puedes elegir a personas que <strong>ya han entrado</strong> o <strong>pre-registradas</strong> (estas se promueven solas en cuanto entran con su correo).</p>
+        ${current.length === 0 && pendingFac.length === 0 ? html`<p class="muted" style="margin:0">Aún no hay co-facilitadores. Pulsa «Añadir co-facilitador».</p>` : html`
         <table class="t">
           <thead><tr><th>Persona</th><th></th></tr></thead>
           <tbody>
@@ -956,6 +959,11 @@ export class AdminPanel extends LitElement {
               <tr>
                 <td>${u.name || u.email} ${this.teamNameOf(u.id) ? html`<span class="tag">${this.teamNameOf(u.id)}</span>` : html`<span class="muted" style="font-size:.78rem">no juega</span>`}</td>
                 <td><button class="btn-sm btn-danger" @click=${() => this.toggleFacilitator(u, false)}>Quitar</button></td>
+              </tr>`)}
+            ${pendingFac.map((iv) => html`
+              <tr>
+                <td>${iv.name || iv.email} <span class="tag" style="background:#3a3416;color:#ffe08a">pendiente · entrará como co-facilitador</span></td>
+                <td><button class="btn-sm btn-danger" @click=${() => this.unflagInvitedFacilitator(iv)}>Quitar</button></td>
               </tr>`)}
           </tbody>
         </table>`}
@@ -966,26 +974,29 @@ export class AdminPanel extends LitElement {
     const facSet = new Set(this.facilitators);
     const assigned = this.assignedAnywhere();
     const memberIds = this.partidaUserIds();
-    const cands = this.users
+    const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
+    // Candidatos con cuenta (ya han entrado) + pre-registrados (se promueven al entrar).
+    const userCands = this.users
       .filter((u) => u.role !== 'admin' && !facSet.has(u.id) && (memberIds.has(u.id) || !assigned.has(u.id)))
-      .map((u) => ({
-        id: u.id,
-        label: u.name || u.email,
-        sub: (u.name && u.email) ? u.email : '',
-        free: !memberIds.has(u.id),
-      }))
-      .sort((a, b) => (Number(b.free) - Number(a.free)) || a.label.localeCompare(b.label));
+      .map((u) => ({ type: 'user', id: u.id, label: u.name || u.email, sub: (u.name && u.email) ? u.email : '', free: !memberIds.has(u.id) }));
+    const invCands = this.pInvited
+      .filter((iv) => !iv.facilitator && !realNorms.has(normalizeEmail(iv.email)))
+      .map((iv) => ({ type: 'invited', id: iv.id, label: iv.name || iv.email, sub: iv.email, invited: true }));
+    const cands = [...userCands, ...invCands]
+      .sort((a, b) => (Number(!!b.invited) - Number(!!a.invited)) || a.label.localeCompare(b.label));
     const wrap = document.createElement('div');
     if (cands.length === 0) {
-      wrap.innerHTML = '<p class="muted">No hay personas disponibles. El co-facilitador debe entrar con Google una vez (un clic, sin necesidad de equipo) y entonces aparecerá aquí. Los pre-registrados por email que aún no han entrado no pueden serlo todavía.</p>';
+      wrap.innerHTML = '<p class="muted">No hay personas disponibles. Pre-regístralas en «Personas» o pídeles que entren con Google una vez.</p>';
     }
     for (const c of cands) {
       const row = document.createElement('label');
       row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:5px 0;cursor:pointer';
-      const chip = c.free
-        ? '<span style="background:#26324a;color:#bcd3ff;border-radius:999px;padding:1px 8px;font-size:.7rem">sin rol asignado</span>'
-        : '<span style="background:#1f3a2a;color:#9ff0c0;border-radius:999px;padding:1px 8px;font-size:.7rem">juega aquí</span>';
-      row.innerHTML = `<input type="checkbox" data-id="${c.id}"> ${chip} <span>${c.label}${c.sub ? ` <span style="opacity:.6">${c.sub}</span>` : ''}</span>`;
+      const chip = c.invited
+        ? '<span style="background:#3a3416;color:#ffe08a;border-radius:999px;padding:1px 8px;font-size:.7rem">pre-registrado</span>'
+        : (c.free
+          ? '<span style="background:#26324a;color:#bcd3ff;border-radius:999px;padding:1px 8px;font-size:.7rem">sin rol asignado</span>'
+          : '<span style="background:#1f3a2a;color:#9ff0c0;border-radius:999px;padding:1px 8px;font-size:.7rem">juega aquí</span>');
+      row.innerHTML = `<input type="checkbox" data-id="${c.id}" data-type="${c.type}"> ${chip} <span>${c.label}${c.sub ? ` <span style="opacity:.6">${c.sub}</span>` : ''}</span>`;
       wrap.appendChild(row);
     }
     modal(wrap, {
@@ -994,7 +1005,10 @@ export class AdminPanel extends LitElement {
         { label: 'Cancelar', onClick: (c) => c() },
         { label: 'Añadir seleccionadas', variant: 'primary', onClick: async (c) => {
           const checks = [...wrap.querySelectorAll('input[type=checkbox]:checked')];
-          for (const ch of checks) await setPartidaFacilitator(this.currentPartidaId, ch.dataset.id, true);
+          for (const ch of checks) {
+            if (ch.dataset.type === 'invited') await setInvitedFacilitator(ch.dataset.id, true);
+            else await setPartidaFacilitator(this.currentPartidaId, ch.dataset.id, true);
+          }
           c();
           if (checks.length) toast(`${checks.length} co-facilitador(es) añadido(s)`, 'success');
         } },
@@ -1004,6 +1018,10 @@ export class AdminPanel extends LitElement {
   async toggleFacilitator(u, on) {
     await setPartidaFacilitator(this.currentPartidaId, u.id, on);
     toast(on ? `${u.name || u.email} es co-facilitador` : `${u.name || u.email} ya no es co-facilitador`, 'success');
+  }
+  async unflagInvitedFacilitator(iv) {
+    await setInvitedFacilitator(iv.id, false);
+    toast(`${iv.name || iv.email} ya no entrará como co-facilitador`, 'success');
   }
   async setMode(mode) { await updatePartidaSession(this.currentPartidaId, { mode }); }
   async onBacklogModeChange(backlogMode) { await updatePartidaSession(this.currentPartidaId, { backlogMode }); }
