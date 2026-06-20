@@ -731,7 +731,7 @@ export class GameBoard extends LitElement {
 
   styles() {
     return html`<style>
-      kbg-game { display: block; max-width: 1380px; margin: 0 auto; padding: 16px; }
+      kbg-game { display: block; max-width: none; margin: 0; padding: 16px 20px; }
       kbg-game .playarea { display: grid; grid-template-columns: 1fr; gap: 14px; align-items: start; }
       kbg-game .playmain { min-width: 0; }
       kbg-game { --tribbu-pink: #ff2e8a; }
