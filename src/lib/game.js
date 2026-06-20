@@ -38,13 +38,17 @@ export async function startGame(board, opts = {}) {
     const bk = bs.exists() ? backlogById(bs.val()) : null;
     if (bk) storyList = bk.stories;
   }
-  // Con WIP: reproduce el mazo (negocio/dev) guardado de la ronda sin WIP, para una comparativa justa.
+  // Con WIP: reproduce el mazo (negocio/dev) y la secuencia de dados guardados
+  // de la ronda sin WIP, para una comparativa justa (única diferencia: el WIP).
   let deck = null;
+  let diceSeq = null;
   if (wipEnabled && board.teamId) {
     const ds = await get(ref(db, `teams/${board.teamId}/storyDeck`));
     deck = ds.exists() ? ds.val() : null;
+    const dq = await get(ref(db, `teams/${board.teamId}/diceSeq`));
+    if (dq.exists()) { const v = dq.val(); diceSeq = Array.isArray(v) ? v : Object.values(v); }
   }
-  const state = E.buildGameState(board, { ...opts, storyList }, deck, cols);
+  const state = E.buildGameState(board, { ...opts, storyList, diceSeq }, deck, cols);
   await runTransaction(ref(db, `games/${board.id}`), () => state);
   await runTransaction(ref(db, `boards/${board.id}/round`), () => 1);
   await runTransaction(ref(db, `boards/${board.id}/status`), () => 'playing');
@@ -118,13 +122,15 @@ export async function applyAction(boardId, action) {
   if (finalState && finalState.status === 'finished') {
     await archiveResults(boardId, finalState);
     await runTransaction(ref(db, `boards/${boardId}/status`), () => 'finished');
-    // Si terminó la ronda SIN WIP, guarda el mazo (negocio/dev por historia) para replicarlo con WIP.
+    // Si terminó la ronda SIN WIP, guarda el mazo (negocio/dev por historia) y la
+    // secuencia de dados, para reproducirlos en la ronda con WIP.
     if (!finalState.wipEnabled && finalState.teamId) {
       const deck = {};
       for (const c of Object.values(finalState.cards || {})) {
         if (c && c.number != null && !c.urgent) deck[c.number] = { business: c.business ?? null, dev: c.dev ?? null };
       }
       await set(ref(db, `teams/${finalState.teamId}/storyDeck`), deck);
+      await set(ref(db, `teams/${finalState.teamId}/diceSeq`), finalState.diceLog || []);
     }
   }
   return resultMsg;

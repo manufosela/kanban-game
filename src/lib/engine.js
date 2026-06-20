@@ -73,7 +73,7 @@ export function emptyFlow() {
  * opts = { wipEnabled, rondas, ciclos, timeLimitMinutes, pauseBetweenRounds }.
  */
 export function buildGameState(board, opts = {}, deck = null, cols = null) {
-  const { wipEnabled = false, rondas = 2, ciclos = 5, timeLimitMinutes = null, pauseBetweenRounds = false, storyList = null } = opts;
+  const { wipEnabled = false, rondas = 2, ciclos = 5, timeLimitMinutes = null, pauseBetweenRounds = false, storyList = null, diceSeq = null } = opts;
   const columns = cols || resolveColumns(board, wipEnabled).cols;
   const M = Math.max(1, Number(rondas) || 1);
   const N = Math.max(1, Number(ciclos) || 1);
@@ -93,6 +93,9 @@ export function buildGameState(board, opts = {}, deck = null, cols = null) {
     columns,
     roleAssignments: board.roleAssignments || {},
     storyList: storyList || null,
+    diceSeq: diceSeq || null,   // secuencia guardada (ronda sin WIP) que se reproduce con WIP
+    diceIndex: 0,               // puntero de consumo de la secuencia
+    diceLog: [],                // valores tirados (se guardan al terminar la ronda sin WIP)
     cards: {},
     doneCount: 0,
     nextNumber: 1,
@@ -141,6 +144,30 @@ export function normalize(state) {
 function flow(s) {
   if (!s.flow) s.flow = emptyFlow();
   return s.flow;
+}
+
+/**
+ * Resuelve `count` valores de dado de forma determinista:
+ *  - Si hay secuencia guardada y no se ha agotado → la reproduce (ronda con WIP).
+ *  - Si no → usa el valor provisto por el cliente y, si no estamos reproduciendo,
+ *    lo registra en diceLog (ronda sin WIP, para guardarlo al terminar).
+ * Avanza siempre el puntero. Devuelve los valores efectivos (los que se aplican).
+ */
+export function drawDice(s, provided, count = 1) {
+  const out = [];
+  for (let k = 0; k < count; k++) {
+    const idx = s.diceIndex || 0;
+    const seq = s.diceSeq;
+    if (seq && idx < seq.length) {
+      out.push(Number(seq[idx]));                 // reproducir el valor guardado
+    } else {
+      const v = Number(provided?.[k]);
+      out.push(v);
+      if (!seq) (s.diceLog = s.diceLog || []).push(v); // grabar (ronda sin secuencia)
+    }
+    s.diceIndex = idx + 1;
+  }
+  return out;
 }
 
 export function endTurn(s) {
@@ -248,7 +275,7 @@ export const HANDLERS = {
   },
   'pm-pull': (s, a) => {
     if (s.step !== STEP.PM_PULL) return { msg: 'No es el paso del PM (Backlog→Refinement).' };
-    const dice = a.dice;
+    const [dice] = drawDice(s, [a.dice], 1);
     const { state, moved } = R.pmPullToAnalysis(s, dice);
     s.cards = state.cards;
     setDice(s, 'pm-pull', dice, a.by);
@@ -281,7 +308,7 @@ export const HANDLERS = {
     if (urgentBlocks(s, a.cardId)) return { msg: 'Hay una historia Urgent en curso: trabájala antes.' };
     if ((s.claims?.[a.cardId]) && s.claims[a.cardId] !== dev) return { msg: 'Esa historia la tiene otro Dev.' };
     if (R.needsPair(s.cards?.[a.cardId])) return { msg: 'Esa historia (Fibonacci > 8) debe hacerse en pair.' };
-    const dice = a.dice;
+    const [dice] = drawDice(s, [a.dice], 1);
     setDice(s, 'dev-advance', dice, dev);
     if (!R.diceAdvances(dice)) pushLog(s, `saca ${dice}: la historia no avanza.`, dev);
     else {
@@ -298,7 +325,7 @@ export const HANDLERS = {
     if (!devIsPending(s, dev)) return { msg: 'Ya has actuado este turno (o no eres Dev).' };
     if (urgentBlocks(s, a.cardId)) return { msg: 'Hay una historia Urgent en curso: trabájala antes.' };
     if ((s.claims?.[a.cardId]) && s.claims[a.cardId] !== dev) return { msg: 'Esa historia la tiene otro Dev.' };
-    const dice = a.dice;
+    const [dice] = drawDice(s, [a.dice], 1);
     setDice(s, 'dev-review', dice, dev);
     if (!R.diceAdvances(dice)) pushLog(s, `revisa un PR y saca ${dice}: no se completa.`, dev);
     else {
@@ -317,7 +344,7 @@ export const HANDLERS = {
     if ((s.claims?.[a.cardId]) && s.claims[a.cardId] !== dev) return { msg: 'Esa historia la tiene otro Dev.' };
     const partner = a.partner;
     if (!devIsPending(s, partner) || partner === dev) return { msg: 'Hace falta otro Dev disponible para el pair.' };
-    const [d1, d2] = a.dice;
+    const [d1, d2] = drawDice(s, a.dice || [], 2);
     setDice(s, 'dev-pair', [d1, d2], dev);
     if (!R.pairAdvances(d1, d2)) pushLog(s, `en pair saca ${d1}+${d2}=${d1 + d2}: no avanza.`, dev);
     else {
@@ -360,7 +387,7 @@ export const HANDLERS = {
     if (s.step !== STEP.QA) return { msg: 'No es el paso de QA.' };
     if ((s.qaRolls || 0) >= R.QA_MAX_ROLLS) return { msg: 'QA ya agotó sus tiradas este turno.' };
     if (a.expect && a.expect.qaRolls != null && (s.qaRolls || 0) !== a.expect.qaRolls) return { msg: 'El estado de QA cambió.' };
-    const dice = a.dice;
+    const [dice] = drawDice(s, [a.dice], 1);
     setDice(s, 'qa-test', dice, a.by);
     s.qaRolls = (s.qaRolls || 0) + 1;
     const out = R.qaTest(s, a.cardId, dice);
@@ -378,7 +405,7 @@ export const HANDLERS = {
   },
   'pm-validate': (s, a) => {
     if (s.step !== STEP.PM_VALIDATE) return { msg: 'No es el paso de validación.' };
-    const dice = a.dice;
+    const [dice] = drawDice(s, [a.dice], 1);
     const { state, moved } = R.pmValidate(s, dice);
     s.cards = state.cards;
     s.doneCount = state.doneCount;

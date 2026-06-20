@@ -11,6 +11,7 @@ export class DiceRoller extends LitElement {
     count: { type: Number },
     disabled: { type: Boolean },
     label: { type: String },
+    force: { type: Array }, // si se indica, el dado ATERRIZA en estos valores (secuencia guardada)
     _values: { state: true },
     _rolling: { state: true },
   };
@@ -69,7 +70,9 @@ export class DiceRoller extends LitElement {
         if (Date.now() - start > 600) { clearInterval(iv); resolve(); }
       }, 80);
     });
-    this._values = Array.from({ length: n }, () => rollDie());
+    // Aterriza en los valores forzados (secuencia guardada) si los hay; si no, aleatorio.
+    const forced = Array.isArray(this.force) && this.force.length === n ? this.force.map(Number) : null;
+    this._values = forced || Array.from({ length: n }, () => rollDie());
     this._rolling = false;
     this.dispatchEvent(new CustomEvent('roll', { detail: { values: [...this._values] }, bubbles: true, composed: true }));
   }
