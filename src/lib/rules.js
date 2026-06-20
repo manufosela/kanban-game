@@ -367,7 +367,9 @@ export function bottleneck(snapshots, columns) {
   if (!snapshots || snapshots.length === 0) return null;
   const cols = orderedColumns(columns);
   const a = anchors(cols);
-  const exclude = new Set([a.id.backlog, a.id.done]);
+  // Refinement es un buffer de entrada (sin WIP): se acumula por diseño, no es
+  // un cuello de botella. Se excluye igual que Backlog y Done.
+  const exclude = new Set([a.id.backlog, a.id.analysis, a.id.done]);
   const totals = {};
   for (const snap of snapshots) {
     for (const [colId, count] of Object.entries(snap.perColumn || {})) {
@@ -381,4 +383,48 @@ export function bottleneck(snapshots, columns) {
     if (!best || avg > best.avg) best = { colId, avg };
   }
   return best;
+}
+
+// ---------------------------------------------------------------------------
+// Tiempo de ciclo (Ley de Little): W = L / λ
+//   L = WIP medio en columnas de trabajo activo
+//   λ = throughput (historias entregadas por turno)
+// El WIP no mejora el throughput total, pero SÍ reduce el tiempo de ciclo: esa
+// es la lección que la comparativa debe mostrar.
+// ---------------------------------------------------------------------------
+
+function snapshotArray(snapshots) {
+  return Array.isArray(snapshots) ? snapshots.filter(Boolean) : Object.values(snapshots || {});
+}
+
+/** WIP medio en columnas de trabajo activo (excluye Backlog, Refinement y Done). */
+export function avgActiveWip(snapshots, columns) {
+  const arr = snapshotArray(snapshots);
+  if (!arr.length) return null;
+  const a = anchors(orderedColumns(columns));
+  const exclude = new Set([a.id.backlog, a.id.analysis, a.id.done]);
+  let total = 0;
+  for (const snap of arr) {
+    for (const [colId, count] of Object.entries(snap.perColumn || {})) {
+      if (exclude.has(colId)) continue;
+      total += count;
+    }
+  }
+  return total / arr.length;
+}
+
+/** Throughput medio = historias entregadas (Done acumulado) por turno jugado. */
+export function throughputPerTurn(snapshots) {
+  const arr = snapshotArray(snapshots);
+  if (!arr.length) return null;
+  const done = Math.max(0, ...arr.map((s) => s.done || 0));
+  return done / arr.length;
+}
+
+/** Tiempo de ciclo medio en turnos (Ley de Little). Null si no hay entregas. */
+export function avgCycleTime(snapshots, columns) {
+  const L = avgActiveWip(snapshots, columns);
+  const lambda = throughputPerTurn(snapshots);
+  if (L == null || !lambda) return null;
+  return L / lambda;
 }

@@ -95,6 +95,7 @@ export class ResultsView extends LitElement {
             <span class="tag">✅ Done: <strong>${R.doneTotal(g)}</strong></span>
             <span class="tag">💼 Negocio: <strong>${R.doneBusiness(g)}</strong></span>
             <span class="tag">🔧 Dev: <strong>${R.doneDev(g)}</strong></span>
+            ${this.cycleTag(snaps, g.columns)}
             ${bn ? html`<span class="tag role-QA">🍶 Cuello de botella: ${bn.name}</span>` : ''}
           </div>
         </div>
@@ -108,10 +109,21 @@ export class ResultsView extends LitElement {
   }
 
   fmtDur(s) { return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '—'; }
+  fmtCycle(t) { return t == null ? '—' : `${t.toFixed(1)} turnos`; }
+  cycleTag(snaps, columns) {
+    const t = R.avgCycleTime(snaps, columns);
+    return t == null ? '' : html`<span class="tag">⏱️ Tiempo de ciclo: <strong>${t.toFixed(1)}</strong> turnos</span>`;
+  }
 
   renderComparison(rounds) {
-    const data = rounds.map((r) => ({ ...r, bn: this.bottleneckOf(r.snapshots, r.columns) }));
+    const data = rounds.map((r) => ({
+      ...r,
+      bn: this.bottleneckOf(r.snapshots, r.columns),
+      cycle: R.avgCycleTime(r.snapshots, r.columns),
+    }));
     const maxDone = Math.max(...data.map((r) => r.doneTotal || 0));
+    const cycles = data.map((r) => r.cycle).filter((c) => c != null);
+    const minCycle = cycles.length ? Math.min(...cycles) : null;
     return html`
       <div class="card stack" style="margin-top:14px">
         <h2 style="margin:0">Comparativa del equipo: sin WIP vs con WIP</h2>
@@ -124,6 +136,7 @@ export class ResultsView extends LitElement {
               <tr><td>Historias en Done</td>${data.map((r) => html`<td class=${r.doneTotal === maxDone ? 'pos' : ''}><strong>${r.doneTotal}</strong></td>`)}</tr>
               <tr><td>💼 Valor de negocio</td>${data.map((r) => html`<td>${r.doneBusiness ?? '—'}</td>`)}</tr>
               <tr><td>🔧 Esfuerzo dev</td>${data.map((r) => html`<td>${r.doneDev ?? '—'}</td>`)}</tr>
+              <tr><td>⏱️ Tiempo de ciclo <span class="muted">(menos = mejor)</span></td>${data.map((r) => html`<td class=${r.cycle != null && r.cycle === minCycle ? 'pos' : ''}>${this.fmtCycle(r.cycle)}</td>`)}</tr>
               <tr><td>Cuello de botella</td>${data.map((r) => html`<td>${r.bn?.name || '—'}</td>`)}</tr>
               <tr><td>Duración</td>${data.map((r) => html`<td>${this.fmtDur(r.durationSec)}</td>`)}</tr>
             </tbody>
@@ -142,9 +155,17 @@ export class ResultsView extends LitElement {
     const wip = data.find((r) => r.wipEnabled);
     if (noWip && wip) {
       const diff = wip.doneTotal - noWip.doneTotal;
-      return html`<p class="${diff >= 0 ? 'pos' : 'neg'}" style="margin:0">
-        Con WIP (R${wip.round}) vs sin WIP (R${noWip.round}): <strong>${diff >= 0 ? '+' : ''}${diff}</strong> historias.
-        ${diff > 0 ? ' Limitar el WIP mejoró el resultado.' : diff < 0 ? ' El WIP redujo el total entregado, pero observa el flujo.' : ' Mismo total; compara el flujo.'}
+      const cw = wip.cycle, cn = noWip.cycle;
+      const cycleNote = (cw != null && cn != null)
+        ? html`<br>⏱️ <strong>Tiempo de ciclo:</strong> con WIP ${cw.toFixed(1)} vs sin WIP ${cn.toFixed(1)} turnos.
+            ${cw < cn
+              ? html`<span class="pos">El WIP entrega cada historia antes (Ley de Little: menos trabajo a medias = menos tiempo de ciclo).</span>`
+              : html`<span class="muted">Aquí no se ve la mejora; suele necesitar más turnos o equipos mayores.</span>`}`
+        : '';
+      return html`<p style="margin:0">
+        <span class="${diff >= 0 ? 'pos' : 'neg'}">Historias en Done — con WIP (R${wip.round}) vs sin WIP (R${noWip.round}): <strong>${diff >= 0 ? '+' : ''}${diff}</strong>.</span>
+        ${diff < 0 ? html`<span class="muted"> El throughput total no es donde gana el WIP — mira el tiempo de ciclo.</span>` : ''}
+        ${cycleNote}
       </p>`;
     }
     return html`<p class="muted" style="margin:0">Juega una ronda con WIP y otra sin WIP para ver la diferencia.</p>`;
