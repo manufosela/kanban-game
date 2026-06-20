@@ -4,6 +4,7 @@
 //
 // Al ser puro (solo depende de rules.js) es 100% testeable y reproducible.
 import * as R from './rules.js';
+import { URGENT_TITLES } from './backlogs.js';
 
 export const STEP = {
   PM_ADD: 1,        // PM mete 3 historias en Backlog
@@ -72,7 +73,7 @@ export function emptyFlow() {
  * opts = { wipEnabled, rondas, ciclos, timeLimitMinutes, pauseBetweenRounds }.
  */
 export function buildGameState(board, opts = {}, deck = null, cols = null) {
-  const { wipEnabled = false, rondas = 2, ciclos = 5, timeLimitMinutes = null, pauseBetweenRounds = false } = opts;
+  const { wipEnabled = false, rondas = 2, ciclos = 5, timeLimitMinutes = null, pauseBetweenRounds = false, storyList = null } = opts;
   const columns = cols || resolveColumns(board, wipEnabled).cols;
   const M = Math.max(1, Number(rondas) || 1);
   const N = Math.max(1, Number(ciclos) || 1);
@@ -91,6 +92,7 @@ export function buildGameState(board, opts = {}, deck = null, cols = null) {
     status: 'playing',
     columns,
     roleAssignments: board.roleAssignments || {},
+    storyList: storyList || null,
     cards: {},
     doneCount: 0,
     nextNumber: 1,
@@ -347,7 +349,8 @@ export const HANDLERS = {
     const n = s.nextNumber || 1;
     const id = `s${n}`;
     const fib = [2, 3, 5, 8][Math.floor(Math.random() * 4)];
-    s.cards = { ...(s.cards || {}), [id]: { id, number: n, col: a.id.devReturn, bug: false, business: 5, dev: fib, urgent: true } };
+    const title = `🔥 ${URGENT_TITLES[Math.floor(Math.random() * URGENT_TITLES.length)]}`;
+    s.cards = { ...(s.cards || {}), [id]: { id, number: n, col: a.id.devReturn, bug: false, business: 5, dev: fib, urgent: true, title } };
     s.nextNumber = n + 1;
     flow(s).urgent += 1;
     pushLog(s, `🔥 Entra una historia URGENT (#${n}) directa a Desarrollo: sácala ya; ignora el WIP y para el resto.`);

@@ -9,10 +9,11 @@ import {
   watchPartidas, createPartida, renamePartida, deletePartida,
   watchPartidaSession, updatePartidaSession,
   watchPartidaFacilitators, setPartidaFacilitator, findUserPartida,
-  migrateLegacyToPartida1,
+  migrateLegacyToPartida1, setTeamBacklog,
 } from '../lib/db.js';
 import { startPartidaForBoards, startGame } from '../lib/game.js';
 import { defaultColumns } from '../lib/rules.js';
+import { BACKLOGS, backlogOptions } from '../lib/backlogs.js';
 import { toast, confirmDialog, promptDialog, modal } from '../lib/ui.js';
 
 const ROLES = ['PM', 'DEV', 'QA'];
@@ -827,6 +828,8 @@ export class AdminPanel extends LitElement {
     const anyPlaying = modeBoards.some((b) => b.status === 'playing');
     const rondas = this.session?.rondas ?? 2;
     const ciclos = this.session?.ciclos ?? 7;
+    const backlogMode = this.session?.backlogMode || 'per-team';
+    const backlogId = this.session?.backlogId || BACKLOGS[0].id;
     const teamless = modeBoards.filter((b) => !this.teams.find((t) => t.id === b.teamId));
     const emptyTeams = modeBoards.filter((b) => this.teamCounts(b.teamId).total === 0);
     const anyPending = modeBoards.some((b) => this.teamCounts(b.teamId).pend > 0);
@@ -844,6 +847,16 @@ export class AdminPanel extends LitElement {
           <div><label>Ciclos por ronda</label><input id="sessCiclos" type="number" min="1" .value=${ciclos} style="width:120px"></div>
           <div><label>Tiempo máx. partida (min)</label><input id="sessTime" type="number" min="0" .value=${this.session?.timeLimitMinutes ?? ''} placeholder="sin límite" style="width:150px"></div>
           <label style="margin:0"><input id="sessPause" type="checkbox" ?checked=${this.session?.pauseBetweenRounds}> Parar entre rondas</label>
+          <div><label>Backlog</label>
+            <select id="sessBacklogMode" @change=${(e) => this.onBacklogModeChange(e.target.value)}>
+              <option value="per-team" ?selected=${backlogMode === 'per-team'}>Uno por equipo</option>
+              <option value="competition" ?selected=${backlogMode === 'competition'}>Mismo (competición)</option>
+            </select>
+          </div>
+          ${backlogMode === 'competition' ? html`<div><label>Proyecto</label>
+            <select id="sessBacklogId">
+              ${backlogOptions().map((o) => html`<option value=${o.id} ?selected=${o.id === backlogId}>${o.emoji} ${o.name}</option>`)}
+            </select></div>` : ''}
           <button class="btn-sm" @click=${() => this.saveSessionConfig()}>💾 Guardar</button>
           <span class="muted">Total: ${rondas * ciclos} ciclos (~${Math.round(rondas * ciclos * 1.3)} min/tablero). Igual en ambos modos. Más ciclos = efecto WIP más nítido pero sesión más larga.</span>
         </div>
@@ -953,14 +966,25 @@ export class AdminPanel extends LitElement {
     toast(on ? `${u.name || u.email} es co-facilitador` : `${u.name || u.email} ya no es co-facilitador`, 'success');
   }
   async setMode(mode) { await updatePartidaSession(this.currentPartidaId, { mode }); }
+  async onBacklogModeChange(backlogMode) { await updatePartidaSession(this.currentPartidaId, { backlogMode }); }
+  /** Asigna a cada equipo de la partida su proyecto: rotando (por equipo) o el mismo (competición). */
+  async assignBacklogs(mode = this.session?.backlogMode || 'per-team', compId = this.session?.backlogId || BACKLOGS[0].id) {
+    const ids = backlogOptions().map((o) => o.id);
+    const teamIds = [...new Set(this.pBoards.map((b) => b.teamId).filter(Boolean))].sort();
+    await Promise.all(teamIds.map((tid, i) => setTeamBacklog(tid, mode === 'competition' ? compId : ids[i % ids.length])));
+    return teamIds.length;
+  }
   async saveSessionConfig() {
     const rondas = Math.max(1, Number(this.querySelector('#sessRondas').value) || 1);
     const ciclos = Math.max(1, Number(this.querySelector('#sessCiclos').value) || 1);
     const tv = this.querySelector('#sessTime').value.trim();
     const timeLimitMinutes = tv === '' ? null : Math.max(0, Number(tv)) || null;
     const pauseBetweenRounds = this.querySelector('#sessPause')?.checked || false;
-    await updatePartidaSession(this.currentPartidaId, { rondas, ciclos, timeLimitMinutes, pauseBetweenRounds });
-    toast(`Configuración: ${rondas} rondas × ${ciclos} ciclos`, 'success');
+    const backlogMode = this.querySelector('#sessBacklogMode')?.value || 'per-team';
+    const backlogId = this.querySelector('#sessBacklogId')?.value || this.session?.backlogId || BACKLOGS[0].id;
+    await updatePartidaSession(this.currentPartidaId, { rondas, ciclos, timeLimitMinutes, pauseBetweenRounds, backlogMode, backlogId });
+    const n = await this.assignBacklogs(backlogMode, backlogId);
+    toast(`Configuración guardada · backlog asignado a ${n} equipo(s)`, 'success');
   }
   async startPartida() {
     const mode = this.session?.mode || 'nowip';
@@ -978,6 +1002,7 @@ export class AdminPanel extends LitElement {
     const ciclos = this.session?.ciclos ?? 7;
     const ok = await confirmDialog(`¿Iniciar la partida ${mode === 'wip' ? 'con WIP' : 'sin WIP'} (${rondas}×${ciclos} = ${rondas * ciclos} ciclos) en ${modeBoards.length} tablero(s)?`, { title: 'Iniciar partida' });
     if (!ok) return;
+    await this.assignBacklogs(); // garantiza que cada equipo tiene proyecto antes de empezar
     await startPartidaForBoards(modeBoards, mode, { rondas, ciclos, timeLimitMinutes: this.session?.timeLimitMinutes ?? null, pauseBetweenRounds: this.session?.pauseBetweenRounds || false });
     // Con un único tablero (típico en demos) abre directamente; con varios, deja la tabla con «Abrir».
     if (modeBoards.length === 1) { location.href = `/board?id=${modeBoards[0].id}`; return; }
