@@ -181,15 +181,24 @@ export class GameBoard extends LitElement {
     }
     return null;
   }
+  /** ¿Me toca a mí "dar el tick" de los bots? El bot decide solo; alguien debe ejecutarlo.
+   *  Lo hace el moderador y/o el humano de menor uid del tablero (determinista, sin choques). */
+  get amBotDriver() {
+    if (this.isMod) return true;
+    const me = this.me?.uid;
+    if (!me) return false;
+    const humans = Object.keys(this.roleAssignments || {}).filter((u) => !isBotId(u)).sort();
+    return humans[0] === me;
+  }
   maybeDriveBots() {
-    // Los bots son autónomos: los conduce el navegador del moderador (nadie "juega" por ellos).
-    if (!this.autoBots || !this.isMod || this._botTimer) return;
+    // Los bots son autónomos (deciden con su heurística); solo se "ejecuta" su decisión.
+    if (!this.autoBots || !this.amBotDriver || this._botTimer) return;
     const g = this.game;
     if (!g || g.status !== 'playing') return;
     if (!this.currentBotActor()) return;
     this._botTimer = setTimeout(() => {
       this._botTimer = null;
-      if (!this.autoBots || !this.isMod) return;
+      if (!this.autoBots || !this.amBotDriver) return;
       const g2 = this.game;
       if (!g2 || g2.status !== 'playing' || !this.currentBotActor()) return;
       const action = botAction(g2);
@@ -602,7 +611,7 @@ export class GameBoard extends LitElement {
       return html`<div class="controls card stack">
         <p><strong>Devs trabajando a la vez.</strong> Faltan <strong>${pendientes}</strong> por actuar.</p>
         ${this.renderDevRoster()}
-        ${canFinish ? html`<button @click=${() => this.act('dev-finish')}>✔ Forzar cierre → QA</button>` : ''}
+        ${canFinish ? html`<button title="Termina el paso de los Devs aunque falte alguien por actuar (no se salta QA: el QA viene después)." @click=${() => this.act('dev-finish')}>✔ Cerrar paso de Devs</button>` : ''}
       </div>`;
     }
 
@@ -643,7 +652,7 @@ export class GameBoard extends LitElement {
           @roll=${(e) => this.devActConcurrent(useCard, action, mustPair, partner, actor, e.detail.values)}></kbg-dice>
         ${meIsDev && this.myClaimId ? html`<button class="btn-sm" @click=${() => this.act('dev-unclaim', { cardId: this.myClaimId, dev: this.me.uid })}>Soltar</button>` : ''}
         ${meIsDev ? html`<button class="btn-sm" title="No puedo hacer nada este turno (WIP lleno o sin historias)" @click=${() => this.act('dev-pass', { dev: this.me.uid })}>⏭ Paso</button>` : ''}
-        ${canFinish ? html`<button @click=${() => this.act('dev-finish')}>✔ Pasar a QA (todos)</button>` : ''}
+        ${canFinish ? html`<button title="Termina el paso de los Devs aunque falte alguien por actuar (no se salta QA: el QA viene después)." @click=${() => this.act('dev-finish')}>✔ Cerrar paso de Devs</button>` : ''}
       </div>
     </div>`;
   }
