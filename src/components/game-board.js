@@ -354,7 +354,7 @@ export class GameBoard extends LitElement {
             ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" @click=${() => this.pause()}>⏸ Pausar</button>` : ''}
             ${this.isMod && g.status === 'paused' ? html`<button class="btn-primary btn-sm" @click=${() => this.resume()}>▶ Reanudar</button>` : ''}
             ${this.isMod && g.status === 'playing' ? html`<button class="btn-sm" @click=${() => this.addRound()}>➕ Añadir ronda</button>` : ''}
-            ${this.isMod && g.status === 'playing' && g.wipEnabled ? html`<button class="btn-sm btn-danger" @click=${() => this.act('inject-urgent')}>🔥 Meter Urgent</button>` : ''}
+            ${(this.isMod || this.myGameRole === 'PM') && g.status === 'playing' && g.wipEnabled ? html`<button class="btn-sm btn-danger" title="Negocio mete una historia urgente (expedite): entra directa a Desarrollo, ignora el WIP y va antes que todo." @click=${() => this.act('inject-urgent')}>🔥 Meter Urgent</button>` : ''}
             ${this.isMod ? html`<button class="btn-sm btn-danger" @click=${() => this.restartGame()}>🔄 Reiniciar</button>` : ''}
           </div>
         </div>
@@ -602,7 +602,7 @@ export class GameBoard extends LitElement {
   ctrlDevs() {
     const g = this.game;
     const a = this.anchors();
-    const canFinish = this.isMod || this.myGameRole === 'PM';
+    const canFinish = this.isMod; // solo el facilitador; el PM no interviene en desarrollo
     const acted = g.devActed || {};
     const claims = g.claims || {};
 
