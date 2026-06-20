@@ -282,6 +282,7 @@ export class AdminPanel extends LitElement {
     await addBotToTeam(team, 'DEV', 'Bot Dev 2');
     await addBotToTeam(team, 'DEV', 'Bot Dev 3');
     await addBotToTeam(team, 'QA', 'Bot QA');
+    await setTeamBacklog(team.id, BACKLOGS[0].id); // proyecto con títulos reales para la demo
     const board = await getBoard(team.boardNoWip);
     await startGame(board, { wipEnabled: false, rondas: 2, ciclos: 7, timeLimitMinutes: null });
     toast('Partida demo creada, ¡a jugar!', 'success');

@@ -5,7 +5,7 @@ import { ref, onValue, runTransaction, get, set, update } from 'firebase/databas
 import { db } from './firebase.js';
 import * as R from './rules.js';
 import * as E from './engine.js';
-import { backlogById } from './backlogs.js';
+import { backlogById, BACKLOGS } from './backlogs.js';
 
 // Re-export del motor para no romper imports existentes (game-board, dashboard…).
 export {
@@ -38,6 +38,9 @@ export async function startGame(board, opts = {}) {
     const bk = bs.exists() ? backlogById(bs.val()) : null;
     if (bk) storyList = bk.stories;
   }
+  // Fallback: si el equipo no tiene proyecto asignado, usa uno por defecto para
+  // que las historias tengan título real (evita "Tarea genérica" por olvido).
+  if (!storyList) storyList = BACKLOGS[0].stories;
   // Con WIP: reproduce el mazo (negocio/dev) y la secuencia de dados guardados
   // de la ronda sin WIP, para una comparativa justa (única diferencia: el WIP).
   let deck = null;
