@@ -205,6 +205,41 @@ describe('métricas', () => {
     const b = R.bottleneck(snaps, s.columns);
     expect(b.colId).toBe(ID.desarrollo);
   });
+
+  it('excluye Refinement (buffer) del cuello de botella', () => {
+    const s = buildState();
+    const snaps = [
+      { turn: 1, perColumn: { [ID.analisis]: 9, [ID.desarrollo]: 3, [ID.qa]: 1 } },
+      { turn: 2, perColumn: { [ID.analisis]: 12, [ID.desarrollo]: 4, [ID.qa]: 1 } },
+    ];
+    const b = R.bottleneck(snaps, s.columns);
+    expect(b.colId).toBe(ID.desarrollo); // no Refinement aunque acumule más
+  });
+});
+
+describe('tiempo de ciclo (Ley de Little)', () => {
+  it('WIP medio excluye Backlog, Refinement y Done', () => {
+    const s = buildState();
+    const snaps = [{ perColumn: { [ID.backlog]: 5, [ID.analisis]: 4, [ID.desarrollo]: 3, [ID.qa]: 1, [ID.done]: 2 }, done: 2 }];
+    expect(R.avgActiveWip(snaps, s.columns)).toBe(4); // desarrollo 3 + qa 1
+  });
+  it('throughput = Done acumulado / turnos', () => {
+    const snaps = [{ done: 1 }, { done: 2 }];
+    expect(R.throughputPerTurn(snaps)).toBe(1); // 2 / 2
+  });
+  it('avgCycleTime = WIP medio / throughput', () => {
+    const s = buildState();
+    const snaps = [
+      { perColumn: { [ID.desarrollo]: 3, [ID.qa]: 1, [ID.done]: 1 }, done: 1 },
+      { perColumn: { [ID.desarrollo]: 3, [ID.qa]: 1, [ID.done]: 2 }, done: 2 },
+    ];
+    expect(R.avgCycleTime(snaps, s.columns)).toBe(4); // L=4, λ=1
+  });
+  it('sin entregas, tiempo de ciclo es null', () => {
+    const s = buildState();
+    const snaps = [{ perColumn: { [ID.desarrollo]: 2 }, done: 0 }];
+    expect(R.avgCycleTime(snaps, s.columns)).toBeNull();
+  });
 });
 
 describe('puntuación de historias', () => {
