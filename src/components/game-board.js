@@ -545,6 +545,19 @@ export class GameBoard extends LitElement {
       </div>
     `;
   }
+  /** Valores a los que debe aterrizar el dado (secuencia guardada), o null para aleatorio. */
+  diceForce(count = 1) {
+    const g = this.game;
+    if (!g?.diceSeq || !g.diceSeq.length) return null;
+    const idx = g.diceIndex || 0;
+    const out = [];
+    for (let k = 0; k < count; k++) {
+      const v = g.diceSeq[idx + k];
+      if (v == null) return null; // secuencia agotada → aleatorio
+      out.push(Number(v));
+    }
+    return out;
+  }
   revealTitle(e, card) {
     e.stopPropagation();
     const prio = R.priorityOf(card);
@@ -590,7 +603,7 @@ export class GameBoard extends LitElement {
   ctrlPmPull() {
     return html`<div class="controls card">
       <p>El PM tira 1 dado y mueve ese número de historias de <strong>Backlog → Análisis</strong>${this.game.round === 2 ? ' (respetando el WIP de Análisis)' : ''}.</p>
-      <kbg-dice count="1" label="Tirar y mover" @roll=${(e) => this.act('pm-pull', { dice: e.detail.values[0] })}></kbg-dice>
+      <kbg-dice count="1" label="Tirar y mover" .force=${this.diceForce(1)} @roll=${(e) => this.act('pm-pull', { dice: e.detail.values[0] })}></kbg-dice>
     </div>`;
   }
 
@@ -660,7 +673,7 @@ export class GameBoard extends LitElement {
         ${mustPair && !partner ? html`<br><span style="color:var(--c-warning)">🔧 Grande (Fib ${useCard.dev}): necesita otro Dev disponible. Espera o coge otra.</span>` : ''}
       </p>
       <div class="row" style="gap:16px">
-        <kbg-dice count=${mustPair ? 2 : 1} label="Tirar" .disabled=${!canRoll}
+        <kbg-dice count=${mustPair ? 2 : 1} label="Tirar" .disabled=${!canRoll} .force=${this.diceForce(mustPair ? 2 : 1)}
           @roll=${(e) => this.devActConcurrent(useCard, action, mustPair, partner, actor, e.detail.values)}></kbg-dice>
         ${meIsDev && this.myClaimId ? html`<button class="btn-sm" @click=${() => this.act('dev-unclaim', { cardId: this.myClaimId, dev: this.me.uid })}>Soltar</button>` : ''}
         ${meIsDev ? html`<button class="btn-sm" title="No puedo hacer nada este turno (WIP lleno o sin historias)" @click=${() => this.act('dev-pass', { dev: this.me.uid })}>⏭ Paso</button>` : ''}
@@ -685,7 +698,7 @@ export class GameBoard extends LitElement {
       <p>QA prueba historias de la columna <strong>QA</strong> (máx. ${R.QA_MAX_ROLLS} tiradas). 3+ pasa a Validación PM; 1-2 es un bug y vuelve a Desarrollo.</p>
       <p class="muted" style="margin:0">Tiradas restantes: <strong>${rollsLeft}</strong>. ${sel ? html`Seleccionada: <strong>#${sel.number}</strong>` : 'Selecciona una historia de QA.'}</p>
       <div class="row" style="gap:16px">
-        <kbg-dice count="1" label="Probar" .disabled=${!inQa || rollsLeft <= 0}
+        <kbg-dice count="1" label="Probar" .disabled=${!inQa || rollsLeft <= 0} .force=${this.diceForce(1)}
           @roll=${(e) => { this.act('qa-test', { cardId: this.selectedCardId, dice: e.detail.values[0] }); this.selectedCardId = null; }}></kbg-dice>
         <button @click=${() => this.act('qa-finish')}>✔ Terminar QA → Validación</button>
       </div>
@@ -695,7 +708,7 @@ export class GameBoard extends LitElement {
   ctrlPmValidate() {
     return html`<div class="controls card">
       <p>El PM tira 1 dado y valida ese número de historias de <strong>Validación PM → Done</strong>. Esto cierra el turno.</p>
-      <kbg-dice count="1" label="Tirar y validar" @roll=${(e) => this.act('pm-validate', { dice: e.detail.values[0] })}></kbg-dice>
+      <kbg-dice count="1" label="Tirar y validar" .force=${this.diceForce(1)} @roll=${(e) => this.act('pm-validate', { dice: e.detail.values[0] })}></kbg-dice>
     </div>`;
   }
 
