@@ -11,6 +11,13 @@ import { claimInvitedOnLogin } from './db.js';
 
 const provider = new GoogleAuthProvider();
 
+// Solo los correos de este dominio entran directamente; el resto quedan en
+// "standby" (status 'pending') hasta que un facilitador los acepte.
+export const ALLOWED_DOMAIN = 'tribuapp.com';
+export function emailAllowed(email) {
+  return typeof email === 'string' && email.toLowerCase().endsWith('@' + ALLOWED_DOMAIN);
+}
+
 export function signInWithGoogle() {
   return signInWithPopup(auth, provider);
 }
@@ -44,12 +51,15 @@ export async function ensureUserRecord(user) {
   const allUsersSnap = await get(ref(db, 'users'));
   const isFirstUser = !allUsersSnap.exists();
   const role = isFirstUser ? 'admin' : 'player';
+  // Acceso: dominio permitido (o primer usuario) → 'active'; resto → 'pending' (standby).
+  const status = (isFirstUser || emailAllowed(user.email)) ? 'active' : 'pending';
 
   const profile = {
     name: user.displayName || user.email,
     email: user.email,
     photoURL: user.photoURL || null,
     role,
+    status,
     createdAt: serverTimestamp(),
   };
   await set(userRef, profile);
@@ -84,6 +94,11 @@ export function requireAuth({ requireAdmin = false } = {}) {
   return new Promise((resolve) => {
     const unsub = watchSession(({ user, profile }) => {
       if (!user) {
+        window.location.replace('/');
+        return;
+      }
+      if (profile?.status === 'pending') {
+        // En standby: vuelve a la portada, que muestra el aviso de espera.
         window.location.replace('/');
         return;
       }
