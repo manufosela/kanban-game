@@ -623,10 +623,12 @@ export class AdminPanel extends LitElement {
     // Se excluyen los pendientes que ya tienen cuenta real (mismo email normalizado): evita duplicados.
     const assigned = this.assignedAnywhere();
     const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
+    const facSet = new Set(this.facilitators);
+    // No se puede co-facilitar y jugar: se excluyen los co-facilitadores (reales y pre-designados).
     const roleOrder = { PM: 0, DEV: 1, QA: 2, '': 3 };
     const cands = [
-      ...this.users.filter((u) => !assigned.has(u.id)).map((u) => ({ id: u.id, label: u.name || u.email, sub: (u.name && u.email) ? u.email : '', invited: false, role: u.defaultRole || '' })),
-      ...this.pInvited.filter((iv) => !iv.teamId && !realNorms.has(normalizeEmail(iv.email))).map((iv) => ({ id: iv.id, label: iv.name || iv.email, sub: iv.email, invited: true, role: iv.role || '' })),
+      ...this.users.filter((u) => !assigned.has(u.id) && !facSet.has(u.id)).map((u) => ({ id: u.id, label: u.name || u.email, sub: (u.name && u.email) ? u.email : '', invited: false, role: u.defaultRole || '' })),
+      ...this.pInvited.filter((iv) => !iv.teamId && !iv.facilitator && !realNorms.has(normalizeEmail(iv.email))).map((iv) => ({ id: iv.id, label: iv.name || iv.email, sub: iv.email, invited: true, role: iv.role || '' })),
     ].sort((a, b) => (roleOrder[a.role] - roleOrder[b.role]) || a.label.localeCompare(b.label));
     const wrap = document.createElement('div');
     if (cands.length === 0) {
@@ -706,9 +708,10 @@ export class AdminPanel extends LitElement {
   /** Personas con rol real disponibles para esta partida (invitados de la partida + reales libres). */
   unassignedPeople() {
     const assigned = this.assignedAnywhere();
+    const facSet = new Set(this.facilitators);
     const people = [];
-    this.users.forEach((u) => { if (u.defaultRole && !assigned.has(u.id)) people.push({ id: u.id, role: u.defaultRole, invited: false, name: u.name || u.email }); });
-    this.pInvited.forEach((iv) => { if (iv.role && !iv.teamId) people.push({ id: iv.id, role: iv.role, invited: true, name: iv.name || iv.email }); });
+    this.users.forEach((u) => { if (u.defaultRole && !assigned.has(u.id) && !facSet.has(u.id)) people.push({ id: u.id, role: u.defaultRole, invited: false, name: u.name || u.email }); });
+    this.pInvited.forEach((iv) => { if (iv.role && !iv.teamId && !iv.facilitator) people.push({ id: iv.id, role: iv.role, invited: true, name: iv.name || iv.email }); });
     return people;
   }
   suggestTeamCount() {
@@ -975,27 +978,27 @@ export class AdminPanel extends LitElement {
     const assigned = this.assignedAnywhere();
     const memberIds = this.partidaUserIds();
     const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
-    // Candidatos con cuenta (ya han entrado) + pre-registrados (se promueven al entrar).
+    // Solo personas SIN rol pueden ser co-facilitadores (no se puede co-facilitar y jugar):
+    //  - cuentas reales NO asignadas a ningún equipo,
+    //  - pre-registrados SIN equipo asignado.
     const userCands = this.users
-      .filter((u) => u.role !== 'admin' && !facSet.has(u.id) && (memberIds.has(u.id) || !assigned.has(u.id)))
-      .map((u) => ({ type: 'user', id: u.id, label: u.name || u.email, sub: (u.name && u.email) ? u.email : '', free: !memberIds.has(u.id) }));
+      .filter((u) => u.role !== 'admin' && !facSet.has(u.id) && !assigned.has(u.id))
+      .map((u) => ({ type: 'user', id: u.id, label: u.name || u.email, sub: (u.name && u.email) ? u.email : '' }));
     const invCands = this.pInvited
-      .filter((iv) => !iv.facilitator && !realNorms.has(normalizeEmail(iv.email)))
+      .filter((iv) => !iv.facilitator && !iv.teamId && !realNorms.has(normalizeEmail(iv.email)))
       .map((iv) => ({ type: 'invited', id: iv.id, label: iv.name || iv.email, sub: iv.email, invited: true }));
     const cands = [...userCands, ...invCands]
       .sort((a, b) => (Number(!!b.invited) - Number(!!a.invited)) || a.label.localeCompare(b.label));
     const wrap = document.createElement('div');
     if (cands.length === 0) {
-      wrap.innerHTML = '<p class="muted">No hay personas disponibles. Pre-regístralas en «Personas» o pídeles que entren con Google una vez.</p>';
+      wrap.innerHTML = '<p class="muted">No hay personas sin rol disponibles. Un co-facilitador no puede tener rol de juego: quítaselo en «Equipos» o pre-registra/usa a alguien sin equipo.</p>';
     }
     for (const c of cands) {
       const row = document.createElement('label');
       row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:5px 0;cursor:pointer';
       const chip = c.invited
         ? '<span style="background:#3a3416;color:#ffe08a;border-radius:999px;padding:1px 8px;font-size:.7rem">pre-registrado</span>'
-        : (c.free
-          ? '<span style="background:#26324a;color:#bcd3ff;border-radius:999px;padding:1px 8px;font-size:.7rem">sin rol asignado</span>'
-          : '<span style="background:#1f3a2a;color:#9ff0c0;border-radius:999px;padding:1px 8px;font-size:.7rem">juega aquí</span>');
+        : '<span style="background:#26324a;color:#bcd3ff;border-radius:999px;padding:1px 8px;font-size:.7rem">sin rol</span>';
       row.innerHTML = `<input type="checkbox" data-id="${c.id}" data-type="${c.type}"> ${chip} <span>${c.label}${c.sub ? ` <span style="opacity:.6">${c.sub}</span>` : ''}</span>`;
       wrap.appendChild(row);
     }
