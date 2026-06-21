@@ -97,6 +97,8 @@ export class ResultsView extends LitElement {
             <span class="tag">💼 Valor entregado: <strong>${m.doneBusiness}</strong></span>
             <span class="tag">🔧 Coste dev: <strong>${m.doneDev}</strong></span>
             ${m.valuePerEffort != null ? html`<span class="tag">🎯 Valor/coste: <strong>${this.fmtNum(m.valuePerEffort, 2)}</strong></span>` : ''}
+            ${m.wastedEffort != null ? html`<span class="tag">🗑️ Coste a medias: <strong>${m.wastedEffort}</strong></span>` : ''}
+            ${m.flowEfficiency != null ? html`<span class="tag">🌊 Eficiencia de flujo: <strong>${this.fmtPct(m.flowEfficiency)}</strong></span>` : ''}
             <span class="tag">📈 Ritmo de entrega: <strong>${this.fmtNum(m.throughputPerTurn, 2)}</strong> historias/turno</span>
             ${m.avgCycleTime != null ? html`<span class="tag">⏱️ Ciclo: <strong>${this.fmtNum(m.avgCycleTime, 1)}</strong> turnos</span>` : ''}
             <span class="tag">📦 WIP medio: <strong>${this.fmtNum(m.avgActiveWip, 1)}</strong></span>
@@ -171,7 +173,9 @@ export class ResultsView extends LitElement {
               ${this.metricRow('📦 WIP medio', 'menos = mejor', col((r) => r.m.avgActiveWip), 'low', (v) => this.fmtNum(v, 1))}
               ${this.metricRow('🔺 Pico de WIP', 'menos = mejor', col((r) => r.m.peakActiveWip), 'low', (v) => this.fmtNum(v, 0))}
               ${this.metricRow('🍶 Cuello de botella', '', col((r) => r.bn?.name ?? null), null, (v) => v || '—')}
-              <tr class="group"><td colspan=${data.length + 1}>Calidad y eficiencia</td></tr>
+              <tr class="group"><td colspan=${data.length + 1}>Coste real y eficiencia</td></tr>
+              ${this.metricRow('🗑️ Coste a medias', 'esfuerzo empezado sin entregar · menos = mejor', col((r) => r.m.wastedEffort ?? null), 'low', (v) => this.fmtNum(v, 0))}
+              ${this.metricRow('🌊 Eficiencia de flujo', '% del esfuerzo que llegó a Done · más = mejor', col((r) => r.m.flowEfficiency), 'high', (v) => this.fmtPct(v))}
               ${this.metricRow('♻️ Retrabajo (bugs QA)', 'menos = mejor', col((r) => r.m.reworkRate), 'low', (v) => this.fmtPct(v))}
               ${this.metricRow('⚙️ Eficiencia Dev', 'acciones útiles · más = mejor', col((r) => r.m.devEfficiency), 'high', (v) => this.fmtPct(v))}
               ${this.metricRow('⏸️ Dev parado', 'acciones sin trabajo útil', col((r) => r.m.devIdle ?? null), null, (v) => this.fmtNum(v, 0))}

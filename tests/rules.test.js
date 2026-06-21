@@ -255,6 +255,7 @@ describe('gameMetrics (paquete completo)', () => {
     const s = buildState();
     putCard(s, 'a', 1, ID.done); s.cards.a.business = 3; s.cards.a.dev = 5;
     putCard(s, 'b', 2, ID.done); s.cards.b.business = 2; s.cards.b.dev = 8;
+    putCard(s, 'c', 3, ID.desarrollo); s.cards.c.dev = 3; // empezada, no entregada
     s.snapshots = {
       1: { perColumn: { [ID.desarrollo]: 3, [ID.qa]: 1, [ID.done]: 1 }, done: 1 },
       2: { perColumn: { [ID.desarrollo]: 3, [ID.qa]: 1, [ID.done]: 2 }, done: 2 },
@@ -265,6 +266,9 @@ describe('gameMetrics (paquete completo)', () => {
     expect(m.doneBusiness).toBe(5);
     expect(m.doneDev).toBe(13);
     expect(m.valuePerEffort).toBeCloseTo(5 / 13); // valor por punto de coste
+    expect(m.wastedEffort).toBe(3);               // 'c' empezada y no entregada
+    expect(m.effortInvested).toBe(16);            // 13 entregado + 3 a medias
+    expect(m.flowEfficiency).toBeCloseTo(13 / 16);
     expect(m.cycles).toBe(2);
     expect(m.avgCycleTime).toBe(4);            // L=4, λ=1
     expect(m.reworkRate).toBeCloseTo(2 / 8);   // bugs / (bugs+qaPass)
