@@ -355,6 +355,18 @@ export function doneBusiness(state) { return doneSum(state, 'business'); }
 /** Esfuerzo de desarrollo entregado (suma de Fibonacci en Done). */
 export function doneDev(state) { return doneSum(state, 'dev'); }
 
+/**
+ * Esfuerzo "a medias" al terminar: suma de Fibonacci de las historias EMPEZADAS
+ * pero no entregadas (columnas activas, excluyendo Backlog, Refinement y Done).
+ * Es coste invertido que produjo CERO valor entregado: el desperdicio del WIP.
+ */
+export function wipEffortLeft(state) {
+  const a = anchors(orderedColumns(state.columns));
+  const exclude = new Set([a.id.backlog, a.id.analysis, a.id.done]);
+  return Object.values(state.cards || {}).reduce(
+    (sum, c) => sum + (!exclude.has(c.col) ? (Number(c.dev) || 0) : 0), 0);
+}
+
 /** Snapshot de métricas del turno: conteo por columna + total Done. */
 export function turnSnapshot(state) {
   const cols = orderedColumns(state.columns);
@@ -470,12 +482,17 @@ export function gameMetrics(state) {
   const devTotal = (f.devMoves || 0) + (f.devBlocked || 0) + (f.devIdle || 0);
   const biz = doneBusiness(state);
   const eff = doneDev(state);
+  const wasted = wipEffortLeft(state);          // esfuerzo empezado y NO entregado
+  const invested = eff + wasted;                // coste real: entregado + a medias
   return {
     cycles: arr.length,
     doneTotal: doneTotal(state),
     doneBusiness: biz,
     doneDev: eff,
     valuePerEffort: eff > 0 ? biz / eff : null, // valor de negocio por punto de desarrollo (eficiencia)
+    wastedEffort: wasted,                        // coste a medias (desperdicio del WIP)
+    effortInvested: invested,                    // coste real total (entregado + a medias)
+    flowEfficiency: invested > 0 ? eff / invested : null, // % del esfuerzo invertido que llegó a Done
     avgCycleTime: avgCycleTime(snaps, columns),
     avgActiveWip: avgActiveWip(snaps, columns),
     peakActiveWip: peakActiveWip(snaps, columns),
