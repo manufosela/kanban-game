@@ -264,6 +264,7 @@ describe('gameMetrics (paquete completo)', () => {
     expect(m.doneTotal).toBe(2);
     expect(m.doneBusiness).toBe(5);
     expect(m.doneDev).toBe(13);
+    expect(m.valuePerEffort).toBeCloseTo(5 / 13); // valor por punto de coste
     expect(m.cycles).toBe(2);
     expect(m.avgCycleTime).toBe(4);            // L=4, λ=1
     expect(m.reworkRate).toBeCloseTo(2 / 8);   // bugs / (bugs+qaPass)
