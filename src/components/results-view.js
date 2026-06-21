@@ -94,8 +94,9 @@ export class ResultsView extends LitElement {
           <div class="row">
             ${(() => { const m = R.gameMetrics(g); return html`
             <span class="tag">✅ Done: <strong>${m.doneTotal}</strong></span>
-            <span class="tag">💼 Negocio: <strong>${m.doneBusiness}</strong></span>
-            <span class="tag">🔧 Dev: <strong>${m.doneDev}</strong></span>
+            <span class="tag">💼 Valor entregado: <strong>${m.doneBusiness}</strong></span>
+            <span class="tag">🔧 Coste dev: <strong>${m.doneDev}</strong></span>
+            ${m.valuePerEffort != null ? html`<span class="tag">🎯 Valor/coste: <strong>${this.fmtNum(m.valuePerEffort, 2)}</strong></span>` : ''}
             <span class="tag">📈 Ritmo de entrega: <strong>${this.fmtNum(m.throughputPerTurn, 2)}</strong> historias/turno</span>
             ${m.avgCycleTime != null ? html`<span class="tag">⏱️ Ciclo: <strong>${this.fmtNum(m.avgCycleTime, 1)}</strong> turnos</span>` : ''}
             <span class="tag">📦 WIP medio: <strong>${this.fmtNum(m.avgActiveWip, 1)}</strong></span>
@@ -159,11 +160,12 @@ export class ResultsView extends LitElement {
               ${data.map((r) => html`<th>${r.wipEnabled ? 'Con WIP' : 'Sin WIP'}<br><span class="muted">ronda ${r.round}</span></th>`)}
             </tr></thead>
             <tbody>
-              <tr class="group"><td colspan=${data.length + 1}>Entrega</td></tr>
-              ${this.metricRow('✅ Historias en Done', 'más = mejor', col((r) => r.doneTotal ?? null), 'high', (v) => html`<strong>${this.fmtNum(v, 0)}</strong>`)}
-              ${this.metricRow('💼 Valor de negocio', 'más = mejor', col((r) => r.doneBusiness ?? null), 'high', (v) => this.fmtNum(v, 0))}
-              ${this.metricRow('🔧 Esfuerzo dev entregado', 'más = mejor', col((r) => r.doneDev ?? null), 'high', (v) => this.fmtNum(v, 0))}
-              ${this.metricRow('📈 Ritmo de entrega', 'historias/turno · más = mejor', col((r) => r.m.throughputPerTurn), 'high', (v) => this.fmtNum(v, 2))}
+              <tr class="group"><td colspan=${data.length + 1}>Entrega (valor, no tareas)</td></tr>
+              ${this.metricRow('💼 Valor de negocio entregado', 'más = mejor', col((r) => r.doneBusiness ?? null), 'high', (v) => html`<strong>${this.fmtNum(v, 0)}</strong>`)}
+              ${this.metricRow('🔧 Coste en desarrollo', 'esfuerzo entregado', col((r) => r.doneDev ?? null), null, (v) => this.fmtNum(v, 0))}
+              ${this.metricRow('🎯 Valor por punto de coste', 'valor/esfuerzo · más = mejor', col((r) => r.m.valuePerEffort), 'high', (v) => this.fmtNum(v, 2))}
+              ${this.metricRow('✅ Historias en Done', 'referencia', col((r) => r.doneTotal ?? null), null, (v) => this.fmtNum(v, 0))}
+              ${this.metricRow('📈 Ritmo de entrega', 'historias/turno', col((r) => r.m.throughputPerTurn), null, (v) => this.fmtNum(v, 2))}
               <tr class="group"><td colspan=${data.length + 1}>Flujo</td></tr>
               ${this.metricRow('⏱️ Tiempo de ciclo', 'turnos · menos = mejor', col((r) => r.m.avgCycleTime), 'low', (v) => this.fmtCycle(v))}
               ${this.metricRow('📦 WIP medio', 'menos = mejor', col((r) => r.m.avgActiveWip), 'low', (v) => this.fmtNum(v, 1))}
@@ -189,7 +191,7 @@ export class ResultsView extends LitElement {
     const noWip = data.find((r) => !r.wipEnabled);
     const wip = data.find((r) => r.wipEnabled);
     if (noWip && wip) {
-      const diff = wip.doneTotal - noWip.doneTotal;
+      const dv = (wip.doneBusiness ?? 0) - (noWip.doneBusiness ?? 0); // diferencia de VALOR, no de tareas
       const cw = wip.cycle, cn = noWip.cycle;
       const cycleNote = (cw != null && cn != null)
         ? html`<br>⏱️ <strong>Tiempo de ciclo:</strong> con WIP ${cw.toFixed(1)} vs sin WIP ${cn.toFixed(1)} turnos.
@@ -198,8 +200,8 @@ export class ResultsView extends LitElement {
               : html`<span class="muted">Aquí no se ve la mejora; suele necesitar más turnos o equipos mayores.</span>`}`
         : '';
       return html`<p style="margin:0">
-        <span class="${diff >= 0 ? 'pos' : 'neg'}">Historias en Done — con WIP (R${wip.round}) vs sin WIP (R${noWip.round}): <strong>${diff >= 0 ? '+' : ''}${diff}</strong>.</span>
-        ${diff < 0 ? html`<span class="muted"> El throughput total no es donde gana el WIP — mira el tiempo de ciclo.</span>` : ''}
+        <span class="${dv >= 0 ? 'pos' : 'neg'}">Valor de negocio entregado — con WIP (R${wip.round}) vs sin WIP (R${noWip.round}): <strong>${dv >= 0 ? '+' : ''}${dv}</strong>.</span>
+        ${dv < 0 ? html`<span class="muted"> El total entregado no es donde más gana el WIP — mira el tiempo de ciclo.</span>` : ''}
         ${cycleNote}
       </p>`;
     }

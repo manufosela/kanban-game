@@ -468,11 +468,14 @@ export function gameMetrics(state) {
   const arr = snapshotArray(snaps);
   const qaTotal = (f.qaPass || 0) + (f.bugs || 0);
   const devTotal = (f.devMoves || 0) + (f.devBlocked || 0) + (f.devIdle || 0);
+  const biz = doneBusiness(state);
+  const eff = doneDev(state);
   return {
     cycles: arr.length,
     doneTotal: doneTotal(state),
-    doneBusiness: doneBusiness(state),
-    doneDev: doneDev(state),
+    doneBusiness: biz,
+    doneDev: eff,
+    valuePerEffort: eff > 0 ? biz / eff : null, // valor de negocio por punto de desarrollo (eficiencia)
     avgCycleTime: avgCycleTime(snaps, columns),
     avgActiveWip: avgActiveWip(snaps, columns),
     peakActiveWip: peakActiveWip(snaps, columns),
