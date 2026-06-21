@@ -100,6 +100,7 @@ export class ResultsView extends LitElement {
             ${m.avgCycleTime != null ? html`<span class="tag">⏱️ Ciclo: <strong>${this.fmtNum(m.avgCycleTime, 1)}</strong> turnos</span>` : ''}
             <span class="tag">📦 WIP medio: <strong>${this.fmtNum(m.avgActiveWip, 1)}</strong></span>
             ${m.reworkRate != null ? html`<span class="tag">♻️ Retrabajo: <strong>${this.fmtPct(m.reworkRate)}</strong></span>` : ''}
+            ${m.devIdle != null ? html`<span class="tag">⏸️ Dev parado: <strong>${m.devIdle}</strong></span>` : ''}
             ${bn ? html`<span class="tag role-QA">🍶 Cuello: ${bn.name}</span>` : ''}`; })()}
           </div>
         </div>
@@ -171,6 +172,7 @@ export class ResultsView extends LitElement {
               <tr class="group"><td colspan=${data.length + 1}>Calidad y eficiencia</td></tr>
               ${this.metricRow('♻️ Retrabajo (bugs QA)', 'menos = mejor', col((r) => r.m.reworkRate), 'low', (v) => this.fmtPct(v))}
               ${this.metricRow('⚙️ Eficiencia Dev', 'acciones útiles · más = mejor', col((r) => r.m.devEfficiency), 'high', (v) => this.fmtPct(v))}
+              ${this.metricRow('⏸️ Dev parado', 'acciones sin trabajo útil', col((r) => r.m.devIdle ?? null), null, (v) => this.fmtNum(v, 0))}
               ${this.metricRow('⏲️ Duración real', '', col((r) => r.durationSec ?? null), null, (v) => this.fmtDur(v))}
             </tbody>
           </table>
