@@ -105,7 +105,7 @@ const ra = roleAssignments();
 console.log(`\nKanban Game · simulación headless`);
 console.log(`Equipo: ${N_DEV} DEV · ${N_QA} QA · ${N_PM} PM   |   ${REPS} repeticiones por longitud   |   mismo mazo por pareja\n`);
 
-const head = ['Long.', 'Pol.', 'Done', '💼Neg', '🔧Dev', 'Ciclo', 'WIPmed', 'WIPpico', 'Throughput', 'Retrabajo', 'EficDev'];
+const head = ['Long.', 'Pol.', 'Done', '💼Neg', '🔧Dev', 'Ciclo', 'WIPmed', 'AMedias', 'EficFlujo', 'Retrabajo', 'EficDev'];
 console.log(head.map((h, i) => h.padEnd(i === 0 ? 6 : 10)).join(''));
 
 for (const ciclos of LENGTHS) {
@@ -126,8 +126,8 @@ for (const ciclos of LENGTHS) {
       f(mean(m.map((x) => x.doneDev))).padEnd(10),
       f(meanDefined(m.map((x) => x.avgCycleTime))).padEnd(10),
       f(mean(m.map((x) => x.avgActiveWip))).padEnd(10),
-      f(mean(m.map((x) => x.peakActiveWip))).padEnd(10),
-      f(meanDefined(m.map((x) => x.throughputPerTurn)), 2).padEnd(10),
+      f(mean(m.map((x) => x.wastedEffort))).padEnd(10),
+      pct(meanDefined(m.map((x) => x.flowEfficiency))).padEnd(10),
       pct(meanDefined(m.map((x) => x.reworkRate))).padEnd(10),
       pct(meanDefined(m.map((x) => x.devEfficiency))).padEnd(10),
     ];
