@@ -96,7 +96,7 @@ export class ResultsView extends LitElement {
             <span class="tag">✅ Done: <strong>${m.doneTotal}</strong></span>
             <span class="tag">💼 Negocio: <strong>${m.doneBusiness}</strong></span>
             <span class="tag">🔧 Dev: <strong>${m.doneDev}</strong></span>
-            <span class="tag">📈 Throughput: <strong>${this.fmtNum(m.throughputPerTurn, 2)}</strong>/turno</span>
+            <span class="tag">📈 Ritmo de entrega: <strong>${this.fmtNum(m.throughputPerTurn, 2)}</strong> historias/turno</span>
             ${m.avgCycleTime != null ? html`<span class="tag">⏱️ Ciclo: <strong>${this.fmtNum(m.avgCycleTime, 1)}</strong> turnos</span>` : ''}
             <span class="tag">📦 WIP medio: <strong>${this.fmtNum(m.avgActiveWip, 1)}</strong></span>
             ${m.reworkRate != null ? html`<span class="tag">♻️ Retrabajo: <strong>${this.fmtPct(m.reworkRate)}</strong></span>` : ''}
@@ -163,7 +163,7 @@ export class ResultsView extends LitElement {
               ${this.metricRow('✅ Historias en Done', 'más = mejor', col((r) => r.doneTotal ?? null), 'high', (v) => html`<strong>${this.fmtNum(v, 0)}</strong>`)}
               ${this.metricRow('💼 Valor de negocio', 'más = mejor', col((r) => r.doneBusiness ?? null), 'high', (v) => this.fmtNum(v, 0))}
               ${this.metricRow('🔧 Esfuerzo dev entregado', 'más = mejor', col((r) => r.doneDev ?? null), 'high', (v) => this.fmtNum(v, 0))}
-              ${this.metricRow('📈 Throughput', 'historias/turno', col((r) => r.m.throughputPerTurn), 'high', (v) => this.fmtNum(v, 2))}
+              ${this.metricRow('📈 Ritmo de entrega', 'historias/turno · más = mejor', col((r) => r.m.throughputPerTurn), 'high', (v) => this.fmtNum(v, 2))}
               <tr class="group"><td colspan=${data.length + 1}>Flujo</td></tr>
               ${this.metricRow('⏱️ Tiempo de ciclo', 'turnos · menos = mejor', col((r) => r.m.avgCycleTime), 'low', (v) => this.fmtCycle(v))}
               ${this.metricRow('📦 WIP medio', 'menos = mejor', col((r) => r.m.avgActiveWip), 'low', (v) => this.fmtNum(v, 1))}
