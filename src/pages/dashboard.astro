@@ -8,7 +8,10 @@ import Layout from '../layouts/Layout.astro';
     <div id="content" hidden>
       <div class="flex-between">
         <h1>Mis partidas</h1>
-        <a class="btn btn-primary" id="adminLink" href="/admin" hidden>+ Administración</a>
+        <div class="row" style="gap:8px">
+          <a class="btn btn-sm" href="/guia">📋 Guía del debrief</a>
+          <a class="btn btn-primary" id="adminLink" href="/admin" hidden>+ Administración</a>
+        </div>
       </div>
       <div id="boards" class="grid grid-2" style="margin-top:16px"></div>
       <div id="empty" class="empty-state" hidden>
