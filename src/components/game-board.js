@@ -1,6 +1,6 @@
 import { LitElement, html } from 'lit';
 import {
-  watchBoard, watchBoards, watchUsers, watchFacilitators, watchBots, isBotId,
+  watchBoard, watchBoards, watchUsers, watchFacilitators, watchBots, watchInvited, isBotId,
   getBoard, getTeam, getPartida,
 } from '../lib/db.js';
 import {
@@ -32,6 +32,8 @@ export class GameBoard extends LitElement {
     selectedCardId: { state: true },
     devAction: { state: true },
     pairPartner: { state: true },
+    invited: { state: true },
+    drivingSeat: { state: true },
   };
 
   constructor() {
@@ -47,6 +49,8 @@ export class GameBoard extends LitElement {
     this.selectedCardId = null;
     this.devAction = 'advance';
     this.pairPartner = null;
+    this.invited = [];
+    this.drivingSeat = null;
   }
   createRenderRoot() { return this; }
 
@@ -58,18 +62,31 @@ export class GameBoard extends LitElement {
     this._wu = watchUsers((l) => { this.users = l; });
     this._wf = watchFacilitators((l) => { this.facilitators = l; });
     this._wbots = watchBots((l) => { this.bots = l; });
+    this._wi = watchInvited((l) => { this.invited = l; });
   }
   disconnectedCallback() {
     super.disconnectedCallback();
-    this._wb?.(); this._wg?.(); this._wbl?.(); this._wu?.(); this._wf?.(); this._wbots?.();
+    this._wb?.(); this._wg?.(); this._wbl?.(); this._wu?.(); this._wf?.(); this._wbots?.(); this._wi?.();
     if (this._botTimer) { clearTimeout(this._botTimer); this._botTimer = null; }
     this._ghostLayer?.remove(); this._ghostLayer = null;
   }
 
   nameOf(uid) {
     if (isBotId(uid)) { const b = this.bots.find((x) => x.id === uid); return `🤖 ${b?.name || 'Bot'}`; }
+    if (typeof uid === 'string' && uid.startsWith('inv_')) {
+      const iv = this.invited.find((x) => x.id === uid);
+      return `⏳ ${iv?.name || iv?.email || 'pendiente'}`; // pre-registrado, aún sin login
+    }
     const u = this.users.find((x) => x.id === uid);
     return u?.name || u?.email || (uid ? `…${String(uid).slice(-4)}` : '—');
+  }
+  /** Asiento que conduce el facilitador en el paso de Devs (el elegido si sigue pendiente, si no el de turno). */
+  get drivingActor() {
+    const g = this.game;
+    const acted = g?.devActed || {};
+    const order = g?.devOrder || [];
+    if (this.drivingSeat && order.includes(this.drivingSeat) && !acted[this.drivingSeat]) return this.drivingSeat;
+    return this.currentDevUid;
   }
 
   // ---- Bots dirigidos por cliente ----
@@ -612,12 +629,17 @@ export class GameBoard extends LitElement {
     const order = g.devOrder || [];
     const acted = g.devActed || {};
     const claims = g.claims || {};
+    const driving = this.isMod ? this.drivingActor : null;
     return html`<div class="dev-roster">
       ${order.map((uid) => {
         const done = !!acted[uid];
         const isMe = uid === this.me?.uid;
         const claimed = Object.values(claims).includes(uid);
-        return html`<span class="dev-chip ${done ? 'done' : ''} ${isMe && !done ? 'cur' : ''}">
+        const isDriving = this.isMod && uid === driving && !done;
+        const pickable = this.isMod && !done;
+        return html`<span class="dev-chip ${done ? 'done' : ''} ${(isMe || isDriving) && !done ? 'cur' : ''} ${pickable ? 'pick' : ''}"
+          title=${pickable ? 'Accionar por esta persona' : ''}
+          @click=${pickable ? () => { this.drivingSeat = uid; } : null}>
           ${done ? '✓' : claimed ? '✋' : '⏳'} ${this.nameOf(uid)}${isMe ? ' (tú)' : ''}
         </span>`;
       })}
@@ -641,7 +663,7 @@ export class GameBoard extends LitElement {
     }
 
     const meIsDev = this.iAmPendingDev;
-    const actor = meIsDev ? this.me.uid : this.currentDevUid;
+    const actor = meIsDev ? this.me.uid : this.drivingActor;
     const free = (c) => !claims[c.id] || claims[c.id] === actor;
     // Carta a usar: la reclamada (humano) o, si modero, la de mayor prioridad libre.
     let useCard = null;
@@ -663,7 +685,7 @@ export class GameBoard extends LitElement {
     const partner = mustPair ? (g.devOrder || []).find((u) => !acted[u] && u !== actor) : null;
     const canRoll = !!useCard && (!mustPair || !!partner);
     return html`<div class="controls card stack">
-      <p><strong>Devs trabajando a la vez.</strong> ${meIsDev ? 'Coge una historia (clic en el tablero) y tira.' : html`Accionas por <strong>${this.nameOf(actor)}</strong>.`}</p>
+      <p><strong>Devs trabajando a la vez.</strong> ${meIsDev ? 'Coge una historia (clic en el tablero) y tira.' : html`Accionas por <strong>${this.nameOf(actor)}</strong>. <span class="muted">(elige otro en el roster)</span>`}</p>
       ${this.renderDevRoster()}
       <p class="muted" style="margin:0">
         ${useCard
@@ -677,6 +699,7 @@ export class GameBoard extends LitElement {
           @roll=${(e) => this.devActConcurrent(useCard, action, mustPair, partner, actor, e.detail.values)}></kbg-dice>
         ${meIsDev && this.myClaimId ? html`<button class="btn-sm" @click=${() => this.act('dev-unclaim', { cardId: this.myClaimId, dev: this.me.uid })}>Soltar</button>` : ''}
         ${meIsDev ? html`<button class="btn-sm" title="No puedo hacer nada este turno (WIP lleno o sin historias)" @click=${() => this.act('dev-pass', { dev: this.me.uid })}>⏭ Paso</button>` : ''}
+        ${!meIsDev && actor ? html`<button class="btn-sm" title="Pasar el turno de esta persona" @click=${() => this.act('dev-pass', { dev: actor })}>⏭ Paso (${this.nameOf(actor)})</button>` : ''}
         ${canFinish ? html`<button title="Termina el paso de los Devs aunque falte alguien por actuar (no se salta QA: el QA viene después)." @click=${() => this.act('dev-finish')}>✔ Cerrar paso de Devs</button>` : ''}
       </div>
     </div>`;
@@ -798,6 +821,8 @@ export class GameBoard extends LitElement {
       kbg-game .dev-chip { font-size: .85rem; padding: 3px 10px; border-radius: 999px; background: var(--c-surface-2); border: 1px solid var(--c-border); color: var(--c-text-soft); }
       kbg-game .dev-chip.done { opacity: .6; text-decoration: line-through; }
       kbg-game .dev-chip.cur { background: #173c3f; color: #7fe3ec; border-color: #4dd0e1; font-weight: 700; }
+      kbg-game .dev-chip.pick { cursor: pointer; }
+      kbg-game .dev-chip.pick:hover { border-color: var(--c-primary); }
       kbg-game .col-body { padding: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start; max-height: 52vh; overflow-y: auto; }
       kbg-game .postit { width: 56px; height: 56px; background: var(--c-postit); color: var(--c-postit-text); border-radius: 6px; box-shadow: var(--shadow-1); display: flex; align-items: center; justify-content: center; position: relative; font-weight: 800; transform: rotate(-1.5deg); }
       kbg-game .postit:nth-child(even) { transform: rotate(1.5deg); }

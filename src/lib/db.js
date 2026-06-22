@@ -401,14 +401,25 @@ export async function setInvitedFacilitator(key, on) {
   await update(ref(db, `invitedUsers/${key}`), { facilitator: on ? true : null });
 }
 export async function setInvitedAssignment(key, teamId, role) {
-  const patch = { teamId: teamId || null, role: role || null };
-  // Al asignar a un equipo, re-asocia la persona a la partida de ese equipo
-  // (cubre el caso de personas libres reutilizadas de una partida borrada).
-  if (teamId) {
-    const ts = await get(ref(db, `teams/${teamId}`));
-    if (ts.exists()) patch.partidaId = ts.val().partidaId || null;
+  const inv = (await get(ref(db, `invitedUsers/${key}`))).val() || {};
+  const updates = {};
+  // Si cambia de equipo (o se desasigna), quitar su asiento del equipo anterior.
+  if (inv.teamId && inv.teamId !== teamId) {
+    const old = (await get(ref(db, `teams/${inv.teamId}`))).val();
+    for (const bid of [old?.boardNoWip, old?.boardWip].filter(Boolean)) updates[`boards/${bid}/roleAssignments/${key}`] = null;
   }
-  await update(ref(db, `invitedUsers/${key}`), patch);
+  updates[`invitedUsers/${key}/teamId`] = teamId || null;
+  updates[`invitedUsers/${key}/role`] = role || null;
+  if (teamId) {
+    const team = (await get(ref(db, `teams/${teamId}`))).val();
+    if (team) {
+      updates[`invitedUsers/${key}/partidaId`] = team.partidaId || null;
+      // Asiento con su nombre (id inv_…, NO es bot): lo conduce el facilitador
+      // hasta que la persona entre con su login y reclame su sitio.
+      for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) updates[`boards/${bid}/roleAssignments/${key}`] = role || null;
+    }
+  }
+  await update(ref(db), updates);
 }
 
 /**
@@ -434,9 +445,16 @@ export async function claimInvitedOnLogin(user) {
   // Si estaba pre-designado como co-facilitador, promociónalo en su partida.
   const withFac = matches.find(([, iv]) => iv.facilitator && iv.partidaId);
   if (withFac) await setPartidaFacilitator(withFac[1].partidaId, user.uid, true);
-  // Elimina todos los pre-registros equivalentes (ya tiene cuenta).
+  // Elimina los pre-registros equivalentes (ya tiene cuenta) y sus asientos inv_
+  // de los tableros (assignToTeam ya creó el asiento con su uid real).
   const updates = {};
-  for (const [k] of matches) updates[`invitedUsers/${k}`] = null;
+  for (const [k, iv] of matches) {
+    updates[`invitedUsers/${k}`] = null;
+    if (iv.teamId) {
+      const t = (await get(ref(db, `teams/${iv.teamId}`))).val();
+      for (const bid of [t?.boardNoWip, t?.boardWip].filter(Boolean)) updates[`boards/${bid}/roleAssignments/${k}`] = null;
+    }
+  }
   await update(ref(db), updates);
   return true;
 }
