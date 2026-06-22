@@ -1,0 +1,112 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Kanban Game · Guía del debrief">
+  <div class="container guia">
+    <div class="flex-between no-print" style="flex-wrap:wrap; gap:8px">
+      <a href="/dashboard" class="muted">← Volver</a>
+      <button class="btn btn-sm" onclick="window.print()">🖨️ Imprimir / PDF</button>
+    </div>
+
+    <header class="hero">
+      <h1>🃏 Guía del debrief — Kanban Game</h1>
+      <p class="lead">El juego son <strong>2 rondas del mismo equipo</strong>, con el <strong>mismo backlog</strong> y los <strong>mismos dados</strong>. Lo <strong>único</strong> que cambia es el límite de WIP — así, cualquier diferencia es culpa del WIP, no de la suerte.</p>
+    </header>
+
+    <section class="card stack">
+      <h2>Las métricas, en una línea</h2>
+      <table class="g">
+        <thead><tr><th>Métrica</th><th>Qué significa</th><th>Dirección</th></tr></thead>
+        <tbody>
+          <tr><td>💼 <strong>Valor entregado</strong></td><td>Lo que de verdad llega al cliente (puntos de valor en Done)</td><td class="good">más = mejor</td></tr>
+          <tr><td>🔧 <strong>Coste en desarrollo</strong></td><td>Esfuerzo entregado (puntos de dev en Done)</td><td>—</td></tr>
+          <tr><td>🎯 <strong>Valor por punto de coste</strong></td><td>Valor ÷ coste. ¿Priorizamos bien?</td><td class="good">más = mejor</td></tr>
+          <tr><td>⏱️ <strong>Tiempo de ciclo</strong></td><td>Cuánto tarda una historia de empezar a terminar</td><td class="good">menos = mejor</td></tr>
+          <tr><td>📦 <strong>WIP medio</strong></td><td>Cuánto trabajo a medias hay a la vez</td><td class="good">menos = mejor</td></tr>
+          <tr><td>🗑️ <strong>Coste a medias</strong></td><td>Esfuerzo empezado y <em>no</em> entregado (desperdicio del WIP)</td><td class="good">menos = mejor</td></tr>
+          <tr><td>🌊 <strong>Eficiencia de flujo</strong></td><td>% del esfuerzo invertido que <em>sí</em> llegó a Done</td><td class="good">más = mejor</td></tr>
+          <tr><td>🍶 <strong>Cuello de botella</strong></td><td>Dónde se atasca el trabajo = dónde actuar</td><td>—</td></tr>
+          <tr><td>⏸️ <strong>Dev parado</strong></td><td>Acciones de dev sin trabajo útil</td><td>dato</td></tr>
+        </tbody>
+      </table>
+      <p class="muted" style="margin:0">Las 4 que cuentan la historia: <strong>Valor entregado · Tiempo de ciclo · Eficiencia de flujo · Cuello de botella</strong>.</p>
+    </section>
+
+    <section class="card stack">
+      <h2>Lo que se suele ver <span class="muted">(mismo equipo, solo cambia el WIP)</span></h2>
+      <table class="g">
+        <thead><tr><th></th><th>sin WIP</th><th>con WIP</th></tr></thead>
+        <tbody>
+          <tr><td>💼 Valor entregado</td><td>menos o igual</td><td class="good">igual o más</td></tr>
+          <tr><td>⏱️ Tiempo de ciclo</td><td>alto</td><td class="good">3–4× más bajo</td></tr>
+          <tr><td>🗑️ Coste a medias</td><td class="bad">enorme (≈ la mitad del esfuerzo varado)</td><td class="good">pequeño</td></tr>
+          <tr><td>🌊 Eficiencia de flujo</td><td>~40%</td><td class="good">~80%</td></tr>
+          <tr><td>⚙️ Devs ocupados</td><td>100%</td><td>100%</td></tr>
+        </tbody>
+      </table>
+      <p class="hl">En las dos rondas <strong>nadie está parado</strong>. La diferencia no es "trabajar más", es <strong>terminar lo empezado</strong>.</p>
+    </section>
+
+    <section class="card stack">
+      <h2>Frases de oro</h2>
+      <ol class="gold">
+        <li><strong>"Estar ocupado no es entregar valor."</strong> Sin WIP los devs están al 100%… pero más de la mitad de su esfuerzo se queda a medias y nunca llega al cliente.</li>
+        <li><strong>"Limitar el WIP no entrega más historias; entrega cada historia MUCHO antes."</strong> El premio es el tiempo de ciclo y la predecibilidad.</li>
+        <li><strong>"El cuello de botella manda."</strong> El sistema entrega al ritmo de su etapa más lenta. Meter más devs solo infla el trabajo a medias.</li>
+        <li><strong>"El WIP no es capacidad."</strong> Subir el WIP de una columna no la hace más rápida; solo permite más cola.</li>
+        <li><strong>"El WIP no se hereda ni se inventa: se calcula desde el equipo que tienes."</strong> Si cambia el equipo, se recalcula.</li>
+      </ol>
+    </section>
+
+    <section class="card stack">
+      <h2>Preguntas para el grupo</h2>
+      <ul>
+        <li>¿En qué ronda entregasteis <strong>valor</strong> antes? (mirad tiempo de ciclo, no nº de tareas)</li>
+        <li>Sin WIP, ¿estabais todos ocupados? Entonces… <strong>¿dónde estaba el desperdicio?</strong> (→ coste a medias)</li>
+        <li>¿Cuál era el <strong>cuello</strong>? ¿Y si metierais otro dev? ¿Y otro QA? ¿Y si los devs pudieran testear?</li>
+        <li>¿Por qué "tener a todos ocupados" puede ser <strong>peor</strong> que tener holgura?</li>
+      </ul>
+    </section>
+
+    <section class="card stack">
+      <h2>Objeciones típicas (y respuesta)</h2>
+      <dl class="obj">
+        <dt>"Un dev no puede estar parado, es desperdicio."</dt>
+        <dd>Cierto. Pero "mantenerlo ocupado" suele significar <strong>empezar trabajo nuevo</strong>, y eso es peor desperdicio: trabajo a medias que no llega a Done. La holgura se <strong>mueve al cuello</strong> (ayudar, mejorar calidad), no se rellena con starts nuevos.</dd>
+        <dt>"Pues metemos más QA."</dt>
+        <dd>Conclusión válida, pero la lección es más amplia: <strong>equilibrar la capacidad al cuello</strong>, hacer a la gente <strong>flexible</strong>, y <strong>limitar el WIP</strong> para ver dónde equilibrar.</dd>
+        <dt>"Subimos el WIP de QA y ya."</dt>
+        <dd>No. QA no va más rápido; solo acumula más cola → peor tiempo de ciclo, mismo throughput. <strong>WIP ≠ capacidad.</strong></dd>
+      </dl>
+    </section>
+
+    <p class="muted no-print">Comparativa y métricas reales en la pantalla de <strong>Resultados</strong> de cada equipo.</p>
+  </div>
+
+  <style>
+    .guia { max-width: 960px; padding-bottom: 40px; }
+    .guia .hero { margin: 12px 0 18px; }
+    .guia .hero h1 { margin: 0 0 6px; }
+    .guia .lead { color: var(--c-text-soft); font-size: 1.05rem; margin: 0; }
+    .guia section { margin-top: 14px; }
+    .guia h2 { margin: 0 0 4px; font-size: 1.2rem; }
+    .guia table.g { width: 100%; border-collapse: collapse; }
+    .guia table.g th, .guia table.g td { padding: 7px 10px; border-bottom: 1px solid var(--c-border); text-align: left; vertical-align: top; }
+    .guia table.g th { color: var(--c-text-soft); font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
+    .guia .good { color: var(--c-success); font-weight: 600; }
+    .guia .bad { color: var(--c-warning); font-weight: 600; }
+    .guia .hl { margin: 4px 0 0; padding: 10px 14px; border-left: 4px solid var(--c-primary); background: var(--c-bg-soft); border-radius: 6px; font-size: 1.05rem; }
+    .guia ol.gold { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+    .guia ol.gold li { line-height: 1.4; }
+    .guia ul { margin: 4px 0; padding-left: 20px; display: grid; gap: 6px; }
+    .guia dl.obj dt { font-weight: 700; margin-top: 10px; }
+    .guia dl.obj dd { margin: 4px 0 0; color: var(--c-text-soft); }
+    @media print {
+      .no-print { display: none !important; }
+      .guia { max-width: none; }
+      .guia .card { border: 1px solid #ccc; break-inside: avoid; }
+      body { background: #fff; color: #000; }
+    }
+  </style>
+</Layout>
