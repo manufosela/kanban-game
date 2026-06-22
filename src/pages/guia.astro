@@ -6,7 +6,10 @@ import Layout from '../layouts/Layout.astro';
   <div class="container guia">
     <div class="flex-between no-print" style="flex-wrap:wrap; gap:8px">
       <a href="/dashboard" class="muted">← Volver</a>
-      <button class="btn btn-sm" onclick="window.print()">🖨️ Imprimir / PDF</button>
+      <div class="row" style="gap:8px">
+        <a class="btn btn-sm" href="https://docs.google.com/presentation/d/1yBg-dKxUTUZg30WyiKdnDquwuPcX-9sn/present" target="_blank" rel="noopener">🖥️ Presentación</a>
+        <button class="btn btn-sm" onclick="window.print()">🖨️ Imprimir / PDF</button>
+      </div>
     </div>
 
     <header class="hero">
