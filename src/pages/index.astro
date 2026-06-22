@@ -8,7 +8,6 @@ import Layout from '../layouts/Layout.astro';
       <div class="hero">
         <div class="hero-logo">🃏</div>
         <h1>Kanban Game</h1>
-        <p class="muted">El juego de los tableros Kanban. Dos rondas: primero sin límite de WIP, después con él. Juega, mide y descubre por qué limitar el trabajo en curso lo cambia todo.</p>
       </div>
       <button id="googleBtn" class="btn-primary btn-lg">
         <span style="margin-right:8px">🔑</span> Entrar con Google
@@ -20,12 +19,6 @@ import Layout from '../layouts/Layout.astro';
       </div>
       <p class="muted small" id="status"></p>
     </div>
-    <ul class="features">
-      <li>👥 Equipos y roles (PM · Dev · QA)</li>
-      <li>🧩 Tableros con columnas configurables</li>
-      <li>🎲 Turnos, dados y reglas WIP</li>
-      <li>📊 Gráficas de flujo y cuellos de botella</li>
-    </ul>
   </section>
 
   <style>
@@ -37,8 +30,6 @@ import Layout from '../layouts/Layout.astro';
     .hero-logo { font-size: 3rem; }
     .hero h1 { margin: 8px 0; font-size: 2.2rem; }
     .small { font-size: .85rem; margin-top: 12px; min-height: 1.2em; }
-    .features { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; color: var(--c-text-soft); }
-    .features li { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 999px; padding: 8px 16px; }
   </style>
 
   <script>
