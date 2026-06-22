@@ -1,6 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="12" fill="#0f1620"/>
-  <rect x="10" y="14" width="12" height="36" rx="2" fill="#6c8cff"/>
-  <rect x="26" y="14" width="12" height="24" rx="2" fill="#ffb74d"/>
-  <rect x="42" y="14" width="12" height="30" rx="2" fill="#66bb6a"/>
+  <!-- carta -->
+  <rect x="15" y="7" width="34" height="50" rx="5" fill="#ffffff" stroke="#cdd5e3" stroke-width="1"/>
+  <!-- J de las esquinas (carta de bufón) -->
+  <text x="21" y="20" font-family="Georgia, 'Times New Roman', serif" font-size="11" font-weight="700" fill="#ff2e8a">J</text>
+  <text x="43" y="48" font-family="Georgia, 'Times New Roman', serif" font-size="11" font-weight="700" fill="#ff2e8a" transform="rotate(180 43 44)">J</text>
+  <!-- gorro de bufón: cúpula + puntas caídas a los lados -->
+  <g fill="none" stroke="#ff2e8a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M24,28 Q16,26 16,34"/>
+    <path d="M32,26 Q31,17 33,15"/>
+    <path d="M40,28 Q48,26 48,34"/>
+  </g>
+  <path d="M18,39 Q18,26 32,26 Q46,26 46,39 Z" fill="#ff2e8a"/>
+  <!-- cascabeles en las puntas -->
+  <g fill="#ffd54a" stroke="#e0a800" stroke-width="0.6">
+    <circle cx="16" cy="35" r="3"/>
+    <circle cx="33" cy="15" r="3"/>
+    <circle cx="48" cy="35" r="3"/>
+  </g>
 </svg>
