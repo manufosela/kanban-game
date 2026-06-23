@@ -2,7 +2,7 @@ import { LitElement, html } from 'lit';
 import {
   watchUsers, watchTeams, watchBoards, watchInvited, watchBots,
   setUserRole, setUserStatus, createTeam, renameTeam, deleteTeam,
-  renameBoard, setBoardColumns, assignToTeam, unassignFromTeam,
+  renameBoard, setBoardColumns, setColumnWip, assignToTeam, unassignFromTeam,
   addInvited, deleteInvited, setInvitedAssignment, setInvitedFacilitator, normalizeEmail,
   setUserDefaultRole, setInvitedRole,
   isBotId, addBotToTeam, removeBotFromTeam, setBotRole, getBoard, removeUser,
@@ -12,7 +12,7 @@ import {
   migrateLegacyToPartida1, setTeamBacklog,
 } from '../lib/db.js';
 import { startPartidaForBoards, startGame } from '../lib/game.js';
-import { defaultColumns } from '../lib/rules.js';
+import { defaultColumns, suggestedWipByAnchor, anchors, orderedColumns } from '../lib/rules.js';
 import { BACKLOGS, backlogOptions } from '../lib/backlogs.js';
 import { toast, confirmDialog, promptDialog, modal } from '../lib/ui.js';
 
@@ -520,8 +520,8 @@ export class AdminPanel extends LitElement {
         <div class="row" style="gap:8px; align-items:flex-end">
           <span class="muted">o automático:</span>
           <div><label>Nº equipos</label><input id="nTeams" type="number" min="1" .value=${this.suggestTeamCount()} style="width:90px"></div>
-          <button class="btn-primary" @click=${() => this.generateTeams()}>🎲 Generar equipos al azar</button>
-          <span class="muted">reparte por rol real a quien no esté en un equipo (1 PM · 3 DEV · 2 QA por equipo)</span>
+          <button class="btn-primary" @click=${() => this.generateTeams()}>🎲 Generar equipos equilibrados</button>
+          <span class="muted">reparte a TODAS las personas sin asignar (les pone rol si no lo tienen), mete <strong>bots</strong> en los roles que falten y <strong>ajusta el WIP</strong> a cada equipo</span>
         </div>
         <p class="muted" style="margin:0">Cada equipo se crea con sus dos tableros: uno <strong>sin WIP</strong> y uno <strong>con WIP</strong>. Asigna a las personas una vez por equipo; juegan en ambos.</p>
       </div>
@@ -729,39 +729,68 @@ export class AdminPanel extends LitElement {
     const pend = this.invited.filter((iv) => iv.teamId === teamId).length;
     return { real, pend, total: real + pend };
   }
+  /** Reparte en cada equipo: respeta preferencias (máx 1 PM, 1 QA) y rellena el resto como DEV. */
+  balanceRoles(members) {
+    const res = { PM: [], DEV: [], QA: [] };
+    const rest = [];
+    for (const m of members) {
+      if (m.pref === 'PM' && res.PM.length < 1) res.PM.push(m);
+      else if (m.pref === 'QA' && res.QA.length < 1) res.QA.push(m);
+      else if (m.pref === 'DEV') res.DEV.push(m);
+      else rest.push(m);
+    }
+    for (const m of rest) {
+      if (res.PM.length < 1) res.PM.push(m);
+      else if (res.QA.length < 1) res.QA.push(m);
+      else res.DEV.push(m);
+    }
+    return res;
+  }
   async generateTeams() {
     const nTeams = Math.max(1, Number(this.querySelector('#nTeams')?.value) || 1);
-    const people = this.unassignedPeople();
-    if (people.length === 0) return toast('No hay personas con rol real sin asignar. Ponles el rol en la pestaña Personas.', 'warning', 6000);
-    const byRole = { PM: [], DEV: [], QA: [] };
-    people.forEach((p) => { if (byRole[p.role]) byRole[p.role].push(p); });
+    // Pool: TODAS las personas sin asignar (con o sin rol), reales + pre-registradas.
+    const assigned = this.assignedAnywhere();
+    const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
+    const pool = [
+      ...this.users.filter((u) => u.role !== 'admin' && !assigned.has(u.id)).map((u) => ({ id: u.id, invited: false, pref: u.defaultRole || '' })),
+      ...this.pInvited.filter((iv) => !iv.teamId && !realNorms.has(normalizeEmail(iv.email))).map((iv) => ({ id: iv.id, invited: true, pref: iv.role || '' })),
+    ];
+    if (pool.length === 0) return toast('No hay personas sin asignar.', 'warning', 5000);
     const shuffle = (arr) => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
-    shuffle(byRole.PM); shuffle(byRole.DEV); shuffle(byRole.QA);
-    const slots = Array.from({ length: nTeams }, () => ({ PM: [], DEV: [], QA: [] }));
-    const leftovers = [];
-    const place = (list, role, cap) => {
-      let ti = 0;
-      for (const p of list) {
-        let placed = false;
-        for (let k = 0; k < nTeams; k++) { const idx = (ti + k) % nTeams; if (slots[idx][role].length < cap) { slots[idx][role].push(p); ti = idx + 1; placed = true; break; } }
-        if (!placed) leftovers.push(p);
-      }
-    };
-    place(byRole.PM, 'PM', 1); place(byRole.DEV, 'DEV', 3); place(byRole.QA, 'QA', 2);
-    const assignedCount = people.length - leftovers.length;
-    const ok = await confirmDialog(`Se crearán ${nTeams} equipo(s) y se repartirán ${assignedCount} persona(s).${leftovers.length ? ` ${leftovers.length} quedarán sin asignar (las pones a mano).` : ''} ¿Continuar?`, { title: 'Generar equipos' });
+    shuffle(pool);
+    // Reparto round-robin (tamaños equilibrados) y asignación de roles por equipo.
+    const teamsPeople = Array.from({ length: nTeams }, () => []);
+    pool.forEach((p, i) => teamsPeople[i % nTeams].push(p));
+    const plan = teamsPeople.map((members) => this.balanceRoles(members));
+    const ok = await confirmDialog(
+      `Se crearán ${nTeams} equipo(s) con ${pool.length} persona(s), repartiendo roles equilibrados (1 PM, 1 QA, resto DEV). Se rellenarán con bots los roles que falten y se ajustará el WIP a cada equipo. ¿Continuar?`,
+      { title: 'Generar equipos equilibrados' });
     if (!ok) return;
     const base = this.pTeams.length;
+    let botsAdded = 0;
     for (let i = 0; i < nTeams; i++) {
       const team = await createTeam(`Equipo ${base + i + 1}`, this.me?.uid, this.currentPartidaId);
+      const roles = plan[i];
       for (const role of ROLES) {
-        for (const p of slots[i][role]) {
-          if (p.invited) await setInvitedAssignment(p.id, team.id, role);
-          else await assignToTeam(team, p.id, role);
+        for (const m of roles[role]) {
+          if (m.invited) await setInvitedAssignment(m.id, team.id, role);
+          else await assignToTeam(team, m.id, role);
         }
       }
+      // Rellenar con bots los roles que hayan quedado vacíos.
+      for (const role of ROLES) {
+        if (roles[role].length === 0) { await addBotToTeam(team, role, `Bot ${role}`); botsAdded += 1; }
+      }
+      // Ajustar el WIP del tablero CON WIP según la composición final (personas + bots).
+      const board = await getBoard(team.boardWip);
+      if (board) {
+        const wip = suggestedWipByAnchor(board.columns, board.roleAssignments || {});
+        const analysisId = anchors(orderedColumns(board.columns)).id.analysis;
+        await Promise.all(Object.entries(wip).map(([colId, val]) => setColumnWip(team.boardWip, colId, val)));
+        await setColumnWip(team.boardWip, analysisId, null); // Refinement: buffer sin WIP
+      }
     }
-    toast(`${nTeams} equipo(s) generados${leftovers.length ? `, ${leftovers.length} sin asignar` : ''}`, 'success');
+    toast(`${nTeams} equipo(s) equilibrados${botsAdded ? `, ${botsAdded} bot(s) en huecos` : ''}, WIP ajustado.`, 'success', 6000);
   }
   async renameTeam(t) {
     const name = await promptDialog('Nuevo nombre del equipo', { title: 'Renombrar equipo', value: t.name });
