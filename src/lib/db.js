@@ -152,8 +152,12 @@ export async function assignToTeam(team, uid, role) {
   await update(ref(db), updates);
 }
 export async function unassignFromTeam(team, uid) {
+  const role = team.members?.[uid] || null; // se conserva como rol preferido para re-asignar
   const updates = {};
   updates[`teams/${team.id}/members/${uid}`] = null;
+  updates[`users/${uid}/teamId`] = null;
+  updates[`users/${uid}/gameRole`] = null;
+  if (role) updates[`users/${uid}/defaultRole`] = role; // recuerda su rol (no desaparece en Personas)
   for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) {
     updates[`boards/${bid}/roleAssignments/${uid}`] = null;
   }

@@ -618,7 +618,7 @@ export class AdminPanel extends LitElement {
   }
   async removeMember(t, p) {
     if (p.bot) await removeBotFromTeam(t, p.id);
-    else if (p.invited) await setInvitedAssignment(p.id, null, null);
+    else if (p.invited) await setInvitedAssignment(p.id, null, p.role || null); // saca del equipo pero recuerda su rol
     else await unassignFromTeam(t, p.id);
     toast(`${p.name} fuera del equipo`, 'info');
   }
