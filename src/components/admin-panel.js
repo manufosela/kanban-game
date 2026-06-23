@@ -14,6 +14,7 @@ import {
 import { startPartidaForBoards, startGame } from '../lib/game.js';
 import { defaultColumns, suggestedWipByAnchor, anchors, orderedColumns } from '../lib/rules.js';
 import { BACKLOGS, backlogOptions } from '../lib/backlogs.js';
+import { planByRole, teamRoleCounts } from '../lib/teams.js';
 import { toast, confirmDialog, promptDialog, modal } from '../lib/ui.js';
 
 const ROLES = ['PM', 'DEV', 'QA'];
@@ -740,41 +741,6 @@ export class AdminPanel extends LitElement {
       ...this.pInvited.filter((iv) => !iv.teamId && !realNorms.has(normalizeEmail(iv.email))).map((iv) => ({ id: iv.id, invited: true, pref: iv.role || '', name: iv.name || iv.email })),
     ];
   }
-  /** Conteo de roles ya presentes en un equipo (miembros reales + bots + pre-registrados). */
-  currentTeamRoles(team) {
-    const c = { PM: 0, DEV: 0, QA: 0 };
-    for (const r of Object.values(team.members || {})) if (c[r] != null) c[r] += 1;
-    for (const iv of this.invited) if (iv.teamId === team.id && c[iv.role] != null) c[iv.role] += 1;
-    return c;
-  }
-  /**
-   * Reparte por ROL EXISTENTE, SIN reconvertir: 1 PM y 1 QA por equipo (máximo), DEV todos.
-   * Quien no cuadra (PM/QA de más, o personas sin rol) queda FUERA (se informa).
-   * Devuelve { plans, leftOut }.
-   */
-  planByRole(pool, existings) {
-    const n = existings.length;
-    const plans = existings.map(() => ({ PM: [], DEV: [], QA: [] }));
-    const has = (ti, role) => (existings[ti][role] || 0) + plans[ti][role].length;
-    const leftOut = [];
-    const seatUnique = (list, role) => {
-      for (const p of list) {
-        let placed = false;
-        for (let ti = 0; ti < n; ti++) { if (has(ti, role) < 1) { plans[ti][role].push(p); placed = true; break; } }
-        if (!placed) leftOut.push({ ...p, role }); // ya hay PM/QA en todos los equipos
-      }
-    };
-    seatUnique(pool.filter((p) => p.pref === 'PM'), 'PM');
-    seatUnique(pool.filter((p) => p.pref === 'QA'), 'QA');
-    for (const p of pool.filter((x) => x.pref === 'DEV')) { // DEV: todos, al equipo con menos gente
-      let best = 0, min = Infinity;
-      for (let ti = 0; ti < n; ti++) { const c = has(ti, 'PM') + has(ti, 'DEV') + has(ti, 'QA'); if (c < min) { min = c; best = ti; } }
-      plans[best].DEV.push(p);
-    }
-    // Sin rol asignado: fuera (el admin les pone rol o crea otro equipo).
-    pool.filter((p) => !['PM', 'DEV', 'QA'].includes(p.pref)).forEach((p) => leftOut.push({ ...p, role: '' }));
-    return { plans, leftOut };
-  }
   /** Resumen del reparto: composición por equipo, bots y quién quedó fuera. */
   showTeamSummary(summary, leftOut, totalPeople) {
     const botsByRole = { PM: 0, DEV: 0, QA: 0 };
@@ -841,7 +807,7 @@ export class AdminPanel extends LitElement {
     const pool = this.shuffleInPlace(this.unassignedPool());
     if (pool.length === 0) return toast('No hay personas sin asignar. Usa "Crear equipos" si solo quieres la estructura.', 'warning', 6000);
     const existings = Array.from({ length: nTeams }, () => ({ PM: 0, DEV: 0, QA: 0 }));
-    const { plans, leftOut } = this.planByRole(pool, existings);
+    const { plans, leftOut } = planByRole(pool, existings);
     const ok = await confirmDialog(
       `Se crearán ${nTeams} equipo(s) y se repartirán las personas por su ROL (sin reconvertir). Bots en los roles que falten; quien no cuadre quedará fuera (te lo resumo al final). ¿Continuar?`,
       { title: 'Generar equipos por rol' });
@@ -862,8 +828,8 @@ export class AdminPanel extends LitElement {
     if (teams.length === 0) return toast('No hay equipos creados. Crea equipos primero.', 'warning', 5000);
     const pool = this.shuffleInPlace(this.unassignedPool());
     if (pool.length === 0) return toast('No hay personas sin asignar.', 'warning', 5000);
-    const existings = teams.map((t) => this.currentTeamRoles(t));
-    const { plans, leftOut } = this.planByRole(pool, existings);
+    const existings = teams.map((t) => teamRoleCounts(t, this.invited));
+    const { plans, leftOut } = planByRole(pool, existings);
     const ok = await confirmDialog(
       `Se repartirán las personas por su ROL en ${teams.length} equipo(s) existente(s) (sin reconvertir, respetando los que ya tienen). Bots en huecos; quien no cuadre queda fuera (te lo resumo). ¿Continuar?`,
       { title: 'Repartir por rol en equipos existentes' });
