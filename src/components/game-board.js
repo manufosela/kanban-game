@@ -510,7 +510,7 @@ export class GameBoard extends LitElement {
 
   renderCard(card, col, a, step) {
     const devValid = step === STEP.DEVS && (R.advanceSources(this.game).includes(card.col) || card.col === a.id.review);
-    const qaValid = step === STEP.QA && card.col === a.id.qa;
+    const qaValid = step === STEP.QA && card.col === a.id.qa && !card.blocked;
     let selectable = false;
     if (qaValid) selectable = this.canAct;
     else if (devValid) selectable = (this.isMod || this.currentDevUid === this.me?.uid) && (!R.urgentActive(this.game) || card.urgent);
@@ -523,7 +523,7 @@ export class GameBoard extends LitElement {
       ? `#${card.number} · ${card.title} · 💼${card.business ?? '—'} / 🔧${card.dev ?? '—'}${prio ? ` · prioridad ${prio}` : ''}`
       : `#${card.number} · 💼${card.business ?? '—'} / 🔧${card.dev ?? '—'}`;
     return html`
-      <div class="postit ${card.bug ? 'bug' : ''} ${selected ? 'sel' : ''} ${selectable ? 'pick' : ''} ${R.needsPair(card) ? 'big' : ''} ${card.urgent ? 'urgent' : ''} ${paused ? 'paused' : ''}"
+      <div class="postit ${card.bug ? 'bug' : ''} ${card.blocked ? 'blocked' : ''} ${selected ? 'sel' : ''} ${selectable ? 'pick' : ''} ${R.needsPair(card) ? 'big' : ''} ${card.urgent ? 'urgent' : ''} ${paused ? 'paused' : ''}"
            data-cid=${card.id} title=${fullTitle}
            @click=${() => this.onCardClick(card, step, selectable)}>
         ${card.urgent ? html`<span class="urgentmark" title="Urgent">🔥</span>` : ''}
@@ -534,6 +534,7 @@ export class GameBoard extends LitElement {
         ${prio ? html`<span class="prio ${prioClass}" title="Prioridad (valor/esfuerzo)">${prio}</span>` : ''}
         ${R.needsPair(card) ? html`<span class="pairmark" title="Fibonacci 8 o 13: se hace en pair">👥</span>` : ''}
         ${card.bug ? html`<span class="bugmark" title="Tiene un bug">🐞</span>` : ''}
+        ${card.blocked ? html`<span class="blockedmark" title="Bloqueada: espera hueco en Desarrollo (no se puede testar)">🔴</span>` : ''}
       </div>
     `;
   }
@@ -668,10 +669,10 @@ export class GameBoard extends LitElement {
   ctrlQa() {
     const a = this.anchors();
     const sel = this.selectedCardId ? this.game.cards[this.selectedCardId] : null;
-    const inQa = sel && sel.col === a.id.qa;
+    const inQa = sel && sel.col === a.id.qa && !sel.blocked;
     const rollsLeft = R.QA_MAX_ROLLS - (this.game.qaRolls || 0);
     return html`<div class="controls card stack">
-      <p>QA prueba historias de la columna <strong>QA</strong> (máx. ${R.QA_MAX_ROLLS} tiradas). 3+ pasa a Validación PM; 1-2 es un bug y vuelve a Desarrollo.</p>
+      <p>QA prueba historias de la columna <strong>QA</strong> (máx. ${R.QA_MAX_ROLLS} tiradas). 3+ pasa a Validación PM; 1-2 es un bug y vuelve a Desarrollo. Si Desarrollo está lleno (WIP), el bug se queda 🔴 <strong>bloqueado</strong> esperando hueco: no se testa y reentra cuando se libere.</p>
       <p class="muted" style="margin:0">Tiradas restantes: <strong>${rollsLeft}</strong>. ${sel ? html`Seleccionada: <strong>#${sel.number}</strong>` : 'Selecciona una historia de QA.'}</p>
       <div class="row" style="gap:16px">
         <kbg-dice count="1" label="Probar" .disabled=${!inQa || rollsLeft <= 0} .force=${this.diceForce(1)}
@@ -806,6 +807,9 @@ export class GameBoard extends LitElement {
       kbg-game .ulane-cell { min-height: 64px; display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start; padding: 4px; }
       kbg-game .urgent-banner { margin: 0 0 12px; padding: 10px 16px; border-radius: 8px; background: #3a1414; border-left: 4px solid #ff3b3b; font-weight: 600; }
       kbg-game .postit .bugmark { position: absolute; top: -8px; right: -6px; font-size: .9rem; }
+      kbg-game .postit.blocked { outline: 2px solid #ff3b3b; box-shadow: 0 0 10px rgba(255,59,59,.45); animation: kbgBlockedPulse 1.4s ease-in-out infinite; }
+      kbg-game .postit .blockedmark { position: absolute; bottom: -8px; right: -6px; font-size: .9rem; }
+      @keyframes kbgBlockedPulse { 0%,100% { box-shadow: 0 0 6px rgba(255,59,59,.35); } 50% { box-shadow: 0 0 14px rgba(255,59,59,.7); } }
       kbg-game .controls { margin-top: 14px; }
       kbg-game .logfeed { margin: 0; }
       kbg-game .logfeed ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: .9rem; }

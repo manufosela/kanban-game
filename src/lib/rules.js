@@ -149,7 +149,21 @@ export function cardsInColumn(cards, colId) {
 }
 
 export function countInColumn(cards, colId) {
-  return cardsInColumn(cards, colId).length;
+  // Las tarjetas bloqueadas (retrabajo esperando hueco en Desarrollo) no consumen WIP de su
+  // columna: están "fuera del flujo activo". Evita que QA se atasque y bloquee todo el tablero.
+  return cardsInColumn(cards, colId).filter((c) => !c.blocked).length;
+}
+
+/** Historias de QA que se pueden PROBAR (excluye el retrabajo bloqueado a la espera de Desarrollo). */
+export function qaTestable(state) {
+  const a = anchors(orderedColumns(state.columns));
+  return cardsInColumn(state.cards, a.id.qa).filter((c) => !c.blocked);
+}
+
+/** ¿Hay retrabajo bloqueado esperando hueco en Desarrollo? (tarjetas de QA marcadas blocked). */
+export function hasBlockedRework(state) {
+  const a = anchors(orderedColumns(state.columns));
+  return cardsInColumn(state.cards, a.id.qa).some((c) => c.blocked);
 }
 
 /**
@@ -269,11 +283,33 @@ export function devAdvance(state, cardId) {
   const card = state.cards?.[cardId];
   if (!card) return { state, ok: false, reason: 'no-card' };
   if (!advanceSources(state).includes(card.col)) return { state, ok: false, reason: 'bad-source' };
+  const a = anchors(orderedColumns(state.columns));
   const toId = nextColumnId(state, card.col);
   if (!toId) return { state, ok: false, reason: 'no-target' };
+  // Kanban: el retrabajo bloqueado tiene prioridad. No se mete trabajo NUEVO en Desarrollo
+  // mientras un bug espera hueco (entra antes el retrabajo, vía pullBlockedRework).
+  if (toId === a.id.devReturn && !card.bug && hasBlockedRework(state)) return { state, ok: false, reason: 'rework-priority' };
   if (!card.urgent && !hasRoom(state, toId)) return { state, ok: false, reason: 'wip-full' }; // Urgent ignora el WIP
   const s = moveCard(state, cardId, toId);
   return { state: s, ok: true };
+}
+
+/**
+ * Reintroduce en Desarrollo el retrabajo que esperaba bloqueado en QA, mientras haya hueco.
+ * Es la "regla de prioridad": el hueco que se libera en Desarrollo lo ocupa el retrabajo ANTES
+ * que cualquier historia nueva. Orden FIFO (por número). Devuelve { state, moved:[números] }.
+ */
+export function pullBlockedRework(state) {
+  const a = anchors(orderedColumns(state.columns));
+  let s = state;
+  const moved = [];
+  for (const c of cardsInColumn(s.cards, a.id.qa).filter((x) => x.blocked)) {
+    if (!hasRoom(s, a.id.devReturn)) break;
+    s = moveCard(s, c.id, a.id.devReturn);
+    s.cards[c.id] = { ...s.cards[c.id], blocked: false }; // sigue bug:true (es retrabajo)
+    moved.push(c.number);
+  }
+  return { state: s, moved };
 }
 
 /**
@@ -309,9 +345,15 @@ export function qaTest(state, cardId, dice) {
     s.cards[cardId].bug = false;
     return { state: s, result: 'passed', toCol: a.id.validation };
   }
-  // Bug: vuelve a Desarrollo aunque supere el WIP (excepción de la Ronda 2).
+  // Bug: vuelve a Desarrollo, pero RESPETA el WIP (contrapresión Kanban). Si Desarrollo está
+  // lleno, la historia se queda BLOQUEADA esperando en QA (no se cuela, no se re-testa) y
+  // reentrará cuando se libere un hueco, con prioridad sobre el trabajo nuevo.
+  if (!card.urgent && !hasRoom(state, a.id.devReturn)) {
+    const s = { ...state, cards: { ...state.cards, [cardId]: { ...card, bug: true, blocked: true } } };
+    return { state: s, result: 'bug-blocked', toCol: a.id.qa };
+  }
   let s = moveCard(state, cardId, a.id.devReturn);
-  s.cards[cardId].bug = true;
+  s.cards[cardId] = { ...s.cards[cardId], bug: true, blocked: false };
   return { state: s, result: 'bug', toCol: a.id.devReturn };
 }
 
