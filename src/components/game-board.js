@@ -84,7 +84,18 @@ export class GameBoard extends LitElement {
     this.maybeDriveBots();
     this.animateMoves();
     this.detectFlash();
+    this.detectDiceRoll();
     this.maybeFollowActiveBoard();
+  }
+  /** Anima el dado del banner con cada tirada registrada (sirve para bots y para otros jugadores). */
+  detectDiceRoll() {
+    const d = this.game?.dice;
+    if (!d || d.at == null) return;
+    if (this._lastDiceAt == null) { this._lastDiceAt = d.at; return; } // no animar al cargar
+    if (d.at !== this._lastDiceAt) {
+      this._lastDiceAt = d.at;
+      this.querySelector('kbg-dice.flashdie')?.animateTo(d.values);
+    }
   }
   /** Si este tablero ya terminó y el OTRO tablero de MI MISMO equipo está en juego (la ronda con
    *  WIP), entra a él. Restringido al mismo equipo: una persona puede estar en varias partidas y
@@ -252,7 +263,10 @@ export class GameBoard extends LitElement {
     return html`
       ${this.renderTopBar()}
       ${R.urgentActive(this.game) ? html`<div class="urgent-banner">🔥 Historia <strong>URGENT</strong> en curso: el desarrollo normal está en pausa hasta sacarla.</div>` : ''}
-      <div class="playflash ${this.flash ? '' : 'empty'}">${this.flash ? html`🎲 ${this.flash}` : html`&nbsp;`}</div>
+      <div class="playflash ${this.flash ? '' : 'empty'}">
+        <kbg-dice class="flashdie" display count="1"></kbg-dice>
+        <span>${this.flash || html`&nbsp;`}</span>
+      </div>
       <div class="playarea">
         <div class="playmain">
           ${this.renderColumns()}
@@ -746,7 +760,8 @@ export class GameBoard extends LitElement {
         0%, 100% { box-shadow: 0 0 0 4px rgba(255,46,138,.18), 0 0 18px rgba(255,46,138,.30); }
         50% { box-shadow: 0 0 0 6px rgba(255,46,138,.28), 0 0 30px rgba(255,46,138,.50); }
       }
-      kbg-game .playflash { margin: 0 0 12px; padding: 10px 16px; border-radius: 8px; background: #14304a; border-left: 4px solid var(--c-primary); font-size: 1.05rem; font-weight: 600; animation: kbgFlashIn .25s ease; }
+      kbg-game .playflash { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 8px 16px; border-radius: 8px; background: #14304a; border-left: 4px solid var(--c-primary); font-size: 1.05rem; font-weight: 600; animation: kbgFlashIn .25s ease; }
+      kbg-game .flashdie { transform: scale(.6); transform-origin: left center; margin: -10px 0; }
       kbg-game .playflash.empty { visibility: hidden; animation: none; }
       @keyframes kbgFlashIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
       kbg-game .postit { transition: box-shadow .2s; }
