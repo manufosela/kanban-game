@@ -84,18 +84,7 @@ export class GameBoard extends LitElement {
     this.maybeDriveBots();
     this.animateMoves();
     this.detectFlash();
-    this.detectDiceRoll();
     this.maybeFollowActiveBoard();
-  }
-  /** Anima el dado del banner con cada tirada registrada (sirve para bots y para otros jugadores). */
-  detectDiceRoll() {
-    const d = this.game?.dice;
-    if (!d || d.at == null) return;
-    if (this._lastDiceAt == null) { this._lastDiceAt = d.at; return; } // no animar al cargar
-    if (d.at !== this._lastDiceAt) {
-      this._lastDiceAt = d.at;
-      this.querySelector('kbg-dice.flashdie')?.animateTo(d.values);
-    }
   }
   /** Si este tablero ya terminó y el OTRO tablero de MI MISMO equipo está en juego (la ronda con
    *  WIP), entra a él. Restringido al mismo equipo: una persona puede estar en varias partidas y
@@ -264,7 +253,7 @@ export class GameBoard extends LitElement {
       ${this.renderTopBar()}
       ${R.urgentActive(this.game) ? html`<div class="urgent-banner">🔥 Historia <strong>URGENT</strong> en curso: el desarrollo normal está en pausa hasta sacarla.</div>` : ''}
       <div class="playflash ${this.flash ? '' : 'empty'}">
-        <kbg-dice class="flashdie" display count="1"></kbg-dice>
+        <kbg-dice class="flashdie" display count="1" .signal=${this.game?.dice}></kbg-dice>
         <span>${this.flash || html`&nbsp;`}</span>
       </div>
       <div class="playarea">

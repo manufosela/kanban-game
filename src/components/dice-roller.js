@@ -12,6 +12,7 @@ export class DiceRoller extends LitElement {
     disabled: { type: Boolean },
     label: { type: String },
     display: { type: Boolean }, // solo-lectura: muestra tiradas (p.ej. de bots) sin botón ni evento
+    signal: { attribute: false }, // objeto {values, at}: al cambiar `at`, anima solo (tiradas ajenas)
     force: { type: Array }, // si se indica, el dado ATERRIZA en estos valores (secuencia guardada)
     _values: { state: true },
     _rolling: { state: true },
@@ -76,6 +77,16 @@ export class DiceRoller extends LitElement {
     this._values = forced || Array.from({ length: n }, () => rollDie());
     this._rolling = false;
     this.dispatchEvent(new CustomEvent('roll', { detail: { values: [...this._values] }, bubbles: true, composed: true }));
+  }
+
+  /** Cuando cambia `signal` (objeto {values, at} de una tirada registrada), anima solo. */
+  updated(changed) {
+    if (!changed.has('signal')) return;
+    const sig = this.signal;
+    if (!sig || sig.at == null) return;
+    const vals = Array.isArray(sig.values) ? sig.values : Object.values(sig.values || {});
+    if (this._seenAt === undefined) { this._seenAt = sig.at; return; } // no animar al montar
+    if (sig.at !== this._seenAt) { this._seenAt = sig.at; this.animateTo(vals); }
   }
 
   /** Anima el dado hasta `values` SIN emitir evento. Para mostrar tiradas ajenas (bots, otros jugadores). */
