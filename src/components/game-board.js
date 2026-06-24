@@ -86,6 +86,17 @@ export class GameBoard extends LitElement {
     this.detectFlash();
     this.maybeFollowActiveBoard();
   }
+  /** Panel de jugada SIEMPRE visible: la última línea del registro (quién y qué saca) + el dado
+   *  con el valor. Persistente (no se oculta entre jugadas) para poder seguir a los bots. */
+  renderLastRoll() {
+    const log = this.game?.log;
+    const lastText = log && log.length ? log[log.length - 1].text : '';
+    const text = this.flash || lastText;
+    return html`<div class="playflash ${text ? '' : 'empty'} ${this.flash ? 'fresh' : ''}">
+      <kbg-dice class="flashdie" display count="1" .signal=${this.game?.dice}></kbg-dice>
+      <span>${text || html`&nbsp;`}</span>
+    </div>`;
+  }
   /** Si este tablero ya terminó y el OTRO tablero de MI MISMO equipo está en juego (la ronda con
    *  WIP), entra a él. Restringido al mismo equipo: una persona puede estar en varias partidas y
    *  no debe saltar sola a la partida de otro equipo (eso lo elige desde el dashboard). */
@@ -252,10 +263,7 @@ export class GameBoard extends LitElement {
     return html`
       ${this.renderTopBar()}
       ${R.urgentActive(this.game) ? html`<div class="urgent-banner">🔥 Historia <strong>URGENT</strong> en curso: el desarrollo normal está en pausa hasta sacarla.</div>` : ''}
-      <div class="playflash ${this.flash ? '' : 'empty'}">
-        <kbg-dice class="flashdie" display count="1" .signal=${this.game?.dice}></kbg-dice>
-        <span>${this.flash || html`&nbsp;`}</span>
-      </div>
+      ${this.renderLastRoll()}
       <div class="playarea">
         <div class="playmain">
           ${this.renderColumns()}
@@ -749,7 +757,8 @@ export class GameBoard extends LitElement {
         0%, 100% { box-shadow: 0 0 0 4px rgba(255,46,138,.18), 0 0 18px rgba(255,46,138,.30); }
         50% { box-shadow: 0 0 0 6px rgba(255,46,138,.28), 0 0 30px rgba(255,46,138,.50); }
       }
-      kbg-game .playflash { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 8px 16px; border-radius: 8px; background: #14304a; border-left: 4px solid var(--c-primary); font-size: 1.05rem; font-weight: 600; animation: kbgFlashIn .25s ease; }
+      kbg-game .playflash { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 8px 16px; border-radius: 8px; background: #14304a; border-left: 4px solid var(--c-primary); font-size: 1.05rem; font-weight: 600; }
+      kbg-game .playflash.fresh { animation: kbgFlashIn .25s ease; }
       kbg-game .flashdie { transform: scale(.6); transform-origin: left center; margin: -10px 0; }
       kbg-game .playflash.empty { visibility: hidden; animation: none; }
       @keyframes kbgFlashIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
