@@ -73,11 +73,13 @@ import Layout from '../layouts/Layout.astro';
         (groups[b.teamId] = groups[b.teamId] || []).push(b);
       }
 
-      // Si una de mis partidas está EN JUEGO, entrar automáticamente la primera vez.
-      const playing = mine.find((b) => b.status === 'playing');
-      if (playing && !sessionStorage.getItem('kbg.entered.' + playing.id)) {
-        sessionStorage.setItem('kbg.entered.' + playing.id, '1');
-        window.location.href = '/board?id=' + playing.id;
+      // Entrar automáticamente solo si tengo UNA partida en juego (una persona puede estar en
+      // varias partidas). Si hay varias activas, NO autoentro: las muestro para que elija.
+      const playingBoards = mine.filter((b) => b.status === 'playing');
+      const activeTeams = new Set(playingBoards.map((b) => b.teamId));
+      if (activeTeams.size === 1 && !sessionStorage.getItem('kbg.entered.' + playingBoards[0].id)) {
+        sessionStorage.setItem('kbg.entered.' + playingBoards[0].id, '1');
+        window.location.href = '/board?id=' + playingBoards[0].id;
         return;
       }
 
