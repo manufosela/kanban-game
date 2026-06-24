@@ -212,9 +212,8 @@ function startDevsStep(s) {
   else s.step = STEP.DEVS;
 }
 function enterQaStep(s) {
-  const a = R.anchors(R.orderedColumns(s.columns));
-  if (R.cardsInColumn(s.cards, a.id.qa).length === 0) {
-    pushLog(s, 'No hay historias en QA.');
+  if (R.qaTestable(s).length === 0) {
+    pushLog(s, 'No hay historias que probar en QA.');
     enterValidateStep(s);
   } else {
     s.step = STEP.QA;
@@ -258,6 +257,14 @@ function markDevActed(s, uids) {
   clearDevClaims(s, uids);
   const all = (s.devOrder || []).every((u) => s.devActed[u]);
   if (all) { pushLog(s, 'Todos los Devs han actuado.'); enterQaStep(s); }
+}
+/** Reintroduce el retrabajo bloqueado en Desarrollo si se ha liberado hueco (prioridad Kanban). */
+function reentryRework(s) {
+  const { state, moved } = R.pullBlockedRework(s);
+  if (moved.length) {
+    s.cards = state.cards;
+    moved.forEach((n) => pushLog(s, `🔓 Hueco libre en Desarrollo: el retrabajo #${n} reentra (antes que trabajo nuevo).`));
+  }
 }
 
 export const HANDLERS = {
@@ -320,6 +327,7 @@ export const HANDLERS = {
       if (out.ok) { s.cards = out.state.cards; flow(s).devMoves += 1; pushLog(s, `saca ${dice}: la historia #${num(s, a.cardId)} avanza.`, dev); }
       else { if (out.reason === 'wip-full') flow(s).devBlocked += 1; pushLog(s, `saca ${dice} pero no puede avanzar (${reason(out.reason)}).`, dev); }
     }
+    reentryRework(s);
     markDevActed(s, [dev]);
     return {};
   },
@@ -356,6 +364,7 @@ export const HANDLERS = {
       if (out.ok) { s.cards = out.state.cards; flow(s).pairMoves += 1; flow(s).devMoves += 1; pushLog(s, `en pair (${d1}+${d2}=${d1 + d2}): la historia #${num(s, a.cardId)} avanza.`, dev); }
       else { if (out.reason === 'wip-full') flow(s).devBlocked += 1; pushLog(s, `en pair (${d1}+${d2}) pero no puede avanzar (${reason(out.reason)}).`, dev); }
     }
+    reentryRework(s);
     markDevActed(s, [dev, partner]);
     return {};
   },
@@ -398,6 +407,7 @@ export const HANDLERS = {
     s.cards = out.state.cards;
     if (out.result === 'passed') { flow(s).qaPass += 1; pushLog(s, `QA saca ${dice}: la historia #${num(s, a.cardId)} pasa a Validación PM.`); }
     else if (out.result === 'bug') { flow(s).bugs += 1; pushLog(s, `QA saca ${dice}: ¡bug! La historia #${num(s, a.cardId)} vuelve a Desarrollo.`); }
+    else if (out.result === 'bug-blocked') { flow(s).bugs += 1; pushLog(s, `QA saca ${dice}: ¡bug! Pero Desarrollo está lleno (WIP): la historia #${num(s, a.cardId)} se queda 🔴 BLOQUEADA esperando hueco. No empecéis nada nuevo: terminad para liberar.`); }
     else if (out.result === 'blocked') { flow(s).qaBlocked += 1; pushLog(s, `QA saca ${dice} pero Validación PM está llena: la historia se queda en QA.`); }
     return {};
   },
@@ -434,7 +444,7 @@ function num(s, cardId) {
   return s.cards?.[cardId]?.number ?? '?';
 }
 function reason(code) {
-  return { 'wip-full': 'columna destino llena (WIP)', 'no-card': 'sin historia', 'bad-source': 'origen no válido', 'no-target': 'sin destino' }[code] || code;
+  return { 'wip-full': 'columna destino llena (WIP)', 'no-card': 'sin historia', 'bad-source': 'origen no válido', 'no-target': 'sin destino', 'rework-priority': 'hay retrabajo bloqueado con prioridad: termínalo antes de empezar nuevo' }[code] || code;
 }
 
 /**
@@ -453,7 +463,7 @@ export function botAction(state) {
   if (step === STEP.PM_PULL) return { type: 'pm-pull', dice: rollDie(), expect: { step } };
   if (step === STEP.PM_VALIDATE) return { type: 'pm-validate', dice: rollDie(), expect: { step } };
   if (step === STEP.QA) {
-    const qaCards = R.cardsInColumn(state.cards, a.id.qa);
+    const qaCards = R.qaTestable(state);
     if ((state.qaRolls || 0) < R.QA_MAX_ROLLS && qaCards.length) {
       return { type: 'qa-test', cardId: qaCards[0].id, dice: rollDie(), expect: { step, qaRolls: state.qaRolls || 0 } };
     }

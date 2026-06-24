@@ -136,15 +136,35 @@ describe('paso 4: QA', () => {
     expect(state.cards.a.bug).toBe(true);
   });
 
-  it('bug puede superar el WIP de desarrollo (excepción)', () => {
+  it('bug RESPETA el WIP: si Desarrollo está lleno, se queda bloqueado en QA (contrapresión Kanban)', () => {
     let s = buildState({ round: 2, wipEnabled: true });
     putCard(s, 'x1', 1, ID.desarrollo);
     putCard(s, 'x2', 2, ID.desarrollo);
     putCard(s, 'x3', 3, ID.desarrollo); // desarrollo en su límite (3)
     putCard(s, 'a', 4, ID.qa);
     const { state, result } = R.qaTest(s, 'a', 2);
-    expect(result).toBe('bug');
-    expect(R.countInColumn(state.cards, ID.desarrollo)).toBe(4); // supera el WIP
+    expect(result).toBe('bug-blocked');
+    expect(state.cards.a.col).toBe(ID.qa);      // no entra: espera en QA
+    expect(state.cards.a.blocked).toBe(true);
+    expect(R.countInColumn(state.cards, ID.desarrollo)).toBe(3); // NO supera el WIP
+    expect(R.countInColumn(state.cards, ID.qa)).toBe(0);         // la bloqueada no consume WIP de QA
+    expect(R.qaTestable(state).length).toBe(0);  // no es testable
+    expect(R.hasBlockedRework(state)).toBe(true);
+  });
+
+  it('el retrabajo bloqueado reentra en Desarrollo (con prioridad) al liberarse hueco', () => {
+    let s = buildState({ round: 2, wipEnabled: true });
+    putCard(s, 'x1', 1, ID.desarrollo);
+    putCard(s, 'x2', 2, ID.desarrollo);
+    putCard(s, 'x3', 3, ID.desarrollo);
+    putCard(s, 'a', 4, ID.qa);
+    s = R.qaTest(s, 'a', 2).state;        // 'a' queda bloqueada en QA
+    s.cards.x1.col = ID.revision;         // se libera un hueco en Desarrollo
+    const { state, moved } = R.pullBlockedRework(s);
+    expect(moved).toEqual([4]);
+    expect(state.cards.a.col).toBe(ID.desarrollo);
+    expect(state.cards.a.blocked).toBe(false);
+    expect(state.cards.a.bug).toBe(true); // sigue siendo retrabajo
   });
 
   it('si validación está llena, la historia se queda en QA (ronda 2)', () => {
