@@ -10,6 +10,7 @@ import './throughput-chart.js';
 export class ResultsView extends LitElement {
   static properties = {
     boardId: { type: String, attribute: 'board-id' },
+    me: { attribute: false },
     board: { state: true },
     team: { state: true },
     game: { state: true },
@@ -73,7 +74,7 @@ export class ResultsView extends LitElement {
           <h1 style="margin:4px 0">📊 Resultados · ${this.team?.name || this.board.name}</h1>
         </div>
         <div class="row" style="gap:8px">
-          <a class="btn btn-sm" href="/guia">📋 Guía del debrief</a>
+          ${this.me?.isAdmin ? html`<a class="btn btn-sm" href="/guia">📋 Guía del debrief</a>` : ''}
           <a class="btn btn-primary" href="/board?id=${this.boardId}">▶ Ir al tablero</a>
         </div>
       </div>

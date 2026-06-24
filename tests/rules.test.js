@@ -286,9 +286,9 @@ describe('puntuación de historias', () => {
     // 4/2 va antes que 2/8
     expect(R.priorityOf({ business: 4, dev: 2 })).toBeGreaterThan(R.priorityOf({ business: 2, dev: 8 }));
   });
-  it('needsPair solo si Fibonacci > 8', () => {
+  it('needsPair si Fibonacci ≥ 8 (8 y 13)', () => {
     expect(R.needsPair({ dev: 13 })).toBe(true);
-    expect(R.needsPair({ dev: 8 })).toBe(false);
+    expect(R.needsPair({ dev: 8 })).toBe(true);
     expect(R.needsPair({ dev: 5 })).toBe(false);
     expect(R.needsPair({ dev: null })).toBe(false);
   });
