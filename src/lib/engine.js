@@ -195,10 +195,14 @@ export function endTurn(s) {
 
 // --- Paso 3 (Devs) por turnos: una acción por Dev ---
 function devUids(s) {
-  return Object.entries(s.roleAssignments || {})
+  const devs = Object.entries(s.roleAssignments || {})
     .filter(([, r]) => r === 'DEV')
-    .map(([uid]) => uid)
-    .sort();
+    .map(([uid]) => uid);
+  // Turnos: primero los humanos (orden estable), los bots al final.
+  const isBot = (u) => typeof u === 'string' && u.startsWith('bot_');
+  const humans = devs.filter((u) => !isBot(u)).sort();
+  const bots = devs.filter(isBot).sort();
+  return [...humans, ...bots];
 }
 function startDevsStep(s) {
   const devs = devUids(s);
