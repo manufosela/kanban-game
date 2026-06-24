@@ -11,7 +11,7 @@ import {
   watchPartidaFacilitators, setPartidaFacilitator, findUserPartida,
   migrateLegacyToPartida1, setTeamBacklog,
 } from '../lib/db.js';
-import { startPartidaForBoards, startGame } from '../lib/game.js';
+import { startPartidaForBoards } from '../lib/game.js';
 import { defaultColumns, suggestedWipByAnchor, anchors, orderedColumns } from '../lib/rules.js';
 import { BACKLOGS, backlogOptions } from '../lib/backlogs.js';
 import { planByRole, teamRoleCounts } from '../lib/teams.js';
@@ -211,7 +211,7 @@ export class AdminPanel extends LitElement {
                  @keydown=${(e) => { if (e.key === 'Enter') this.addPartida(); }}>
           <button class="btn-primary" @click=${() => this.addPartida()}>+ Crear partida</button>
           <span class="muted">·</span>
-          <button class="btn" @click=${() => this.createDemoPartida()}>🎮 Generar partida demo completa</button>
+          <button class="btn" @click=${() => this.createDemoPartida()}>🤖 Partida con bots (sin iniciar)</button>
         </div>
         <p class="muted" style="margin:0">Cada partida agrupa sus propias personas, equipos, tableros y configuración. Solo el login es global; el resto se gestiona dentro de cada partida.</p>
       </div>
@@ -274,21 +274,19 @@ export class AdminPanel extends LitElement {
   }
   /** Crea una partida demo completa: equipo de bots, inicia su tablero y lo abre. */
   async createDemoPartida() {
-    const ok = await confirmDialog('¿Generar una partida demo completa (equipo de bots: 1 PM, 3 DEV, 1 QA), iniciarla y abrir el tablero para verla jugar sola?', { title: 'Partida demo completa' });
+    const ok = await confirmDialog('¿Crear una partida con un equipo de bots (1 PM, 3 DEV, 1 QA)? NO se inicia: entras en ella y la arrancas tú desde la pestaña Facilitador cuando quieras.', { title: 'Partida con bots' });
     if (!ok) return;
     const n = this.partidas.filter((p) => p.isDemo).length + 1;
     const pid = await createPartida(`Demo ${n}`, this.me?.uid, true);
-    const team = await createTeam('Equipo demo', this.me?.uid, pid);
+    const team = await createTeam('Equipo bots', this.me?.uid, pid);
     await addBotToTeam(team, 'PM', 'Bot PM');
     await addBotToTeam(team, 'DEV', 'Bot Dev 1');
     await addBotToTeam(team, 'DEV', 'Bot Dev 2');
     await addBotToTeam(team, 'DEV', 'Bot Dev 3');
     await addBotToTeam(team, 'QA', 'Bot QA');
-    await setTeamBacklog(team.id, BACKLOGS[0].id); // proyecto con títulos reales para la demo
-    const board = await getBoard(team.boardNoWip);
-    await startGame(board, { wipEnabled: false, rondas: 2, ciclos: 7, timeLimitMinutes: null });
-    toast('Partida demo creada, ¡a jugar!', 'success');
-    location.href = `/board?id=${team.boardNoWip}`;
+    await setTeamBacklog(team.id, BACKLOGS[0].id); // proyecto con títulos reales
+    toast('Partida con bots creada. Inícialo desde la pestaña Facilitador cuando quieras.', 'success', 6000);
+    this.enterPartida(pid);
   }
 
   _tab(id, label) {
@@ -517,7 +515,7 @@ export class AdminPanel extends LitElement {
                  @keydown=${(e) => { if (e.key === 'Enter') this.addTeam(); }}>
           <button class="btn-primary" @click=${() => this.addTeam()}>+ Crear equipo</button>
           <span class="muted">·</span>
-          <button class="btn" @click=${() => this.demoWithBots()}>🎮 Crear demo con bots</button>
+          <button class="btn" @click=${() => this.demoWithBots()}>🤖 Crear equipo de bots</button>
         </div>
         <div class="row" style="gap:8px; align-items:flex-end; flex-wrap:wrap">
           <span class="muted">o automático:</span>
@@ -697,23 +695,16 @@ export class AdminPanel extends LitElement {
   }
   /** Crea una demo: equipo de bots con todos los roles, inicia su partida y abre el tablero. */
   async demoWithBots() {
-    const ok = await confirmDialog('¿Crear una demo con bots (1 PM, 3 DEV, 1 QA), iniciarla y abrir el tablero para verla jugar sola?', { title: 'Crear demo con bots' });
+    const ok = await confirmDialog('¿Crear un equipo de bots (1 PM, 3 DEV, 1 QA) en esta partida? NO se inicia: lo arrancas tú desde la pestaña Facilitador cuando quieras.', { title: 'Crear equipo de bots' });
     if (!ok) return;
-    const team = await createTeam(`Demo ${this.pTeams.length + 1}`, this.me?.uid, this.currentPartidaId);
+    const team = await createTeam(`Bots ${this.pTeams.length + 1}`, this.me?.uid, this.currentPartidaId);
     await addBotToTeam(team, 'PM', 'Bot PM');
     await addBotToTeam(team, 'DEV', 'Bot Dev 1');
     await addBotToTeam(team, 'DEV', 'Bot Dev 2');
     await addBotToTeam(team, 'DEV', 'Bot Dev 3');
     await addBotToTeam(team, 'QA', 'Bot QA');
-    const board = await getBoard(team.boardNoWip);
-    await startGame(board, {
-      wipEnabled: false,
-      rondas: this.session?.rondas ?? 2,
-      ciclos: this.session?.ciclos ?? 7,
-      timeLimitMinutes: this.session?.timeLimitMinutes ?? null,
-    });
-    toast('Demo creada, ¡a jugar!', 'success');
-    location.href = `/board?id=${team.boardNoWip}`;
+    await setTeamBacklog(team.id, BACKLOGS[0].id);
+    toast('Equipo de bots creado. Inícialo desde la pestaña Facilitador cuando quieras (con Auto-bots ON juegan solos).', 'success', 6000);
   }
   /** Personas con rol real disponibles para esta partida (invitados de la partida + reales libres). */
   unassignedPeople() {
