@@ -37,6 +37,17 @@
 
 ---
 
+## ⚠️ Matiz clave: el WIP no es magia, es disciplina
+
+El juego **no compara "WIP sí / WIP no"**, compara **disciplina vs sobre-empezar**.
+
+- Un equipo que **se autolimita** en la ronda sin WIP puede **empatar o ganar** a su ronda con WIP. **No es un fallo**: si ya tienes la disciplina, el límite no aporta (y si es demasiado estricto, hasta empeora por starvation del cuello).
+- La lección es el **comportamiento** (terminar antes que empezar), **no la regla**. El WIP solo lo hace automático para quien no lo haría solo — casi todo el mundo por defecto.
+
+**Para que se vea:** deja que la ronda **sin WIP** se juegue con el instinto natural (*"mantened a todos ocupados, coged trabajo según entra"*). Si un equipo se autolimita y empata, úsalo como lección avanzada: *"habéis jugado sin WIP como si lo tuvierais; eso es justo lo que perseguimos."*
+
+---
+
 ## Frases de oro para el debrief
 
 1. **"Estar ocupado no es entregar valor."**
