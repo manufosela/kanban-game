@@ -91,7 +91,20 @@ import Layout from '../layouts/Layout.astro';
         <dd>Conclusión válida, pero la lección es más amplia: <strong>equilibrar la capacidad al cuello</strong>, hacer a la gente <strong>flexible</strong>, y <strong>limitar el WIP</strong> para ver dónde equilibrar.</dd>
         <dt>"Subimos el WIP de QA y ya."</dt>
         <dd>No. QA no va más rápido; solo acumula más cola → peor tiempo de ciclo, mismo throughput. <strong>WIP ≠ capacidad.</strong></dd>
+        <dt>"QA ha rechazado una historia pero Desarrollo está lleno. ¿La metemos igual?"</dt>
+        <dd><strong>No.</strong> El límite de WIP no se rompe, ni siquiera para el retrabajo. La historia se queda <strong>bloqueada esperando</strong> y el equipo <strong>deja de empezar trabajo nuevo</strong>: el primer hueco que se libere en Desarrollo es para ese retrabajo, <strong>antes</strong> que para cualquier historia nueva. Subir el límite para hacerle sitio es el error clásico — el límite te está diciendo que ya tienes demasiado en marcha. <strong>Arreglar pesa más que empezar.</strong> <span class="muted">(En el juego lo ves: la tarjeta se queda 🔴 parada en QA y nadie puede empezar nada hasta abrir hueco.)</span></dd>
       </dl>
+    </section>
+
+    <section class="card stack" style="border:1px solid var(--c-primary)">
+      <h2>🔴 El momento clave: un rechazo con el cuello lleno</h2>
+      <p style="margin:0">Es la situación más didáctica del taller. QA encuentra un bug, la historia tiene que volver a Desarrollo… pero Desarrollo está a tope de WIP. <strong>¿Qué dice Kanban?</strong></p>
+      <ul>
+        <li><strong>Se bloquea, no se cuela.</strong> La historia espera; el límite no se toca. Eso es <em>contrapresión</em>: el sistema se para a propósito para hacer el problema visible.</li>
+        <li><strong>Nadie empieza nada nuevo.</strong> Los devs "libres" no cogen historia de Refinement: vuelcan a <strong>terminar</strong> lo que tienen para liberar un hueco.</li>
+        <li><strong>El retrabajo tiene prioridad.</strong> El hueco que se abre es para el bug que volvió, no para trabajo nuevo. <em>Arreglar &gt; empezar.</em></li>
+      </ul>
+      <p class="hl">La tentación de "subir el límite para que quepa" es justo lo que Kanban evita: escondería el atasco en vez de obligar a la conversación de "¿dónde está el cuello y cómo lo equilibramos?".</p>
     </section>
 
     <p class="muted no-print">Comparativa y métricas reales en la pantalla de <strong>Resultados</strong> de cada equipo.</p>

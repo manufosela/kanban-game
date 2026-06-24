@@ -87,6 +87,21 @@ El juego **no compara "WIP sí / WIP no"**, compara **disciplina vs sobre-empeza
 - **"Subimos el WIP de QA y ya."**
   No. QA no va más rápido; solo acumula más cola → peor tiempo de ciclo, mismo throughput. WIP ≠ capacidad.
 
+- **"QA ha rechazado una historia pero Desarrollo está lleno. ¿La metemos igual?"**
+  **No.** El límite de WIP no se rompe, ni para el retrabajo. La historia se queda **bloqueada esperando** y el equipo **deja de empezar trabajo nuevo**: el primer hueco que se libere en Desarrollo es para ese retrabajo, **antes** que para cualquier historia nueva. Subir el límite para hacerle sitio es el error clásico — te está avisando de que ya tienes demasiado en marcha. **Arreglar pesa más que empezar.** (En el juego: la tarjeta se queda 🔴 parada en QA y nadie puede empezar nada hasta abrir hueco.)
+
+---
+
+## 🔴 El momento clave: un rechazo con el cuello lleno
+
+La situación más didáctica del taller: QA encuentra un bug, la historia debe volver a Desarrollo… pero Desarrollo está a tope de WIP. **Qué dice Kanban:**
+
+- **Se bloquea, no se cuela.** La historia espera; el límite no se toca. Es *contrapresión*: el sistema se para a propósito para hacer el problema visible.
+- **Nadie empieza nada nuevo.** Los devs "libres" no cogen historia de Refinement: vuelcan a **terminar** lo que tienen para liberar un hueco.
+- **El retrabajo tiene prioridad.** El hueco que se abre es para el bug que volvió, no para trabajo nuevo. *Arreglar > empezar.*
+
+> Subir el límite "para que quepa" es justo lo que Kanban evita: escondería el atasco en vez de obligar a la conversación de "¿dónde está el cuello y cómo lo equilibramos?".
+
 ---
 
 *Comparativa y métricas en la pantalla de **Resultados** de cada equipo.*
