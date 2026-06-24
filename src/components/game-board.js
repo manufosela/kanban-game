@@ -96,13 +96,16 @@ export class GameBoard extends LitElement {
     this.detectFlash();
     this.maybeFollowActiveBoard();
   }
-  /** Si este tablero ya terminó y otro tablero mío está en juego (p.ej. la ronda con WIP), entra a él. */
+  /** Si este tablero ya terminó y el OTRO tablero de MI MISMO equipo está en juego (la ronda con
+   *  WIP), entra a él. Restringido al mismo equipo: una persona puede estar en varias partidas y
+   *  no debe saltar sola a la partida de otro equipo (eso lo elige desde el dashboard). */
   maybeFollowActiveBoard() {
     if (this.isMod) return; // el moderador no se mueve solo
     const me = this.me?.uid;
     if (!me || !this.allBoards) return;
     if (this.game && this.game.status === 'playing') return; // sigo jugando aquí
-    const target = this.allBoards.find((b) => b.id !== this.boardId && b.status === 'playing' && b.roleAssignments && b.roleAssignments[me]);
+    const myTeam = this.board?.teamId;
+    const target = this.allBoards.find((b) => b.id !== this.boardId && b.teamId && b.teamId === myTeam && b.status === 'playing' && b.roleAssignments && b.roleAssignments[me]);
     if (target && !sessionStorage.getItem('kbg.entered.' + target.id)) {
       sessionStorage.setItem('kbg.entered.' + target.id, '1');
       window.location.href = '/board?id=' + target.id;

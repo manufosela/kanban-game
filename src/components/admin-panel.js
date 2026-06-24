@@ -122,10 +122,11 @@ export class AdminPanel extends LitElement {
     this.pTeams.forEach((t) => Object.keys(t.members || {}).forEach((u) => { if (!isBotId(u)) s.add(u); }));
     return s;
   }
-  /** uids reales asignados a algún equipo de CUALQUIER partida (para detectar globales libres). */
-  assignedAnywhere() {
+  /** Personas (no bots) ya asignadas a un equipo DE ESTA partida. Una persona puede estar
+   *  en otras partidas a la vez; aquí solo se evita meterla en 2 equipos de la misma. */
+  assignedInPartida() {
     const s = new Set();
-    this.teams.forEach((t) => Object.keys(t.members || {}).forEach((u) => { if (!isBotId(u)) s.add(u); }));
+    this.pTeams.forEach((t) => Object.keys(t.members || {}).forEach((u) => { if (!isBotId(u)) s.add(u); }));
     return s;
   }
 
@@ -306,7 +307,7 @@ export class AdminPanel extends LitElement {
   /** Construye la lista unificada de personas de la partida (miembros + pendientes + libres con cuenta). */
   peopleRows() {
     const memberIds = this.partidaUserIds();
-    const assigned = this.assignedAnywhere();
+    const assigned = this.assignedInPartida();
     const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
     const teamOf = (uid) => this.pTeams.find((t) => t.members && t.members[uid] != null);
     const rows = [];
@@ -632,7 +633,7 @@ export class AdminPanel extends LitElement {
   openAddPeople(t) {
     // Candidatos: invitados de ESTA partida sin equipo + usuarios reales libres (sin equipo en ninguna partida).
     // Se excluyen los pendientes que ya tienen cuenta real (mismo email normalizado): evita duplicados.
-    const assigned = this.assignedAnywhere();
+    const assigned = this.assignedInPartida();
     const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
     const roleOrder = { PM: 0, DEV: 1, QA: 2, '': 3 };
     const cands = [
@@ -716,7 +717,7 @@ export class AdminPanel extends LitElement {
   }
   /** Personas con rol real disponibles para esta partida (invitados de la partida + reales libres). */
   unassignedPeople() {
-    const assigned = this.assignedAnywhere();
+    const assigned = this.assignedInPartida();
     const people = [];
     this.users.forEach((u) => { if (u.defaultRole && !assigned.has(u.id)) people.push({ id: u.id, role: u.defaultRole, invited: false, name: u.name || u.email }); });
     this.pInvited.forEach((iv) => { if (iv.role && !iv.teamId) people.push({ id: iv.id, role: iv.role, invited: true, name: iv.name || iv.email }); });
@@ -734,7 +735,7 @@ export class AdminPanel extends LitElement {
   }
   /** Personas sin asignar (reales + pre-registradas), con su rol preferido si lo tienen. */
   unassignedPool() {
-    const assigned = this.assignedAnywhere();
+    const assigned = this.assignedInPartida();
     const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
     return [
       ...this.users.filter((u) => u.role !== 'admin' && !assigned.has(u.id)).map((u) => ({ id: u.id, invited: false, pref: u.defaultRole || '', name: u.name || u.email })),
