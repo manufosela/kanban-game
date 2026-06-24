@@ -11,6 +11,7 @@ export class DiceRoller extends LitElement {
     count: { type: Number },
     disabled: { type: Boolean },
     label: { type: String },
+    display: { type: Boolean }, // solo-lectura: muestra tiradas (p.ej. de bots) sin botón ni evento
     force: { type: Array }, // si se indica, el dado ATERRIZA en estos valores (secuencia guardada)
     _values: { state: true },
     _rolling: { state: true },
@@ -77,13 +78,30 @@ export class DiceRoller extends LitElement {
     this.dispatchEvent(new CustomEvent('roll', { detail: { values: [...this._values] }, bubbles: true, composed: true }));
   }
 
+  /** Anima el dado hasta `values` SIN emitir evento. Para mostrar tiradas ajenas (bots, otros jugadores). */
+  async animateTo(values) {
+    if (this._rolling || !Array.isArray(values) || !values.length) return;
+    this._rolling = true;
+    const n = values.length;
+    this.count = n;
+    const start = Date.now();
+    await new Promise((resolve) => {
+      const iv = setInterval(() => {
+        this._values = Array.from({ length: n }, () => rollDie());
+        if (Date.now() - start > 600) { clearInterval(iv); resolve(); }
+      }, 80);
+    });
+    this._values = values.map(Number);
+    this._rolling = false;
+  }
+
   render() {
     const n = this.count || 1;
     const vals = this._values.length === n ? this._values : Array(n).fill(1);
     return html`
       <div class="dice">${vals.map((v) => this.renderDie(v, this._rolling))}</div>
       ${n > 1 ? html`<span class="total">${vals.reduce((a, b) => a + b, 0)}</span>` : ''}
-      <button ?disabled=${this.disabled || this._rolling} @click=${() => this.roll()}>🎲 ${this.label}</button>
+      ${this.display ? '' : html`<button ?disabled=${this.disabled || this._rolling} @click=${() => this.roll()}>🎲 ${this.label}</button>`}
     `;
   }
 }
