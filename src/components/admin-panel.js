@@ -1002,13 +1002,14 @@ export class AdminPanel extends LitElement {
 
         ${blocked ? html`<p class="bad" style="margin:0">⚠ No se puede iniciar: hay equipos sin nadie asignado o tableros sin equipo. Corrígelo en «Equipos y tableros».</p>` : ''}
         ${!blocked && anyPending ? html`<p class="muted" style="margin:0">ℹ️ Hay personas <strong>pendientes</strong> (pre-registradas) que aún no han iniciado sesión: no podrán jugar su rol hasta que entren con su correo.</p>` : ''}
-        <div class="row" style="gap:10px; align-items:center">
+        <div class="row" style="gap:10px; align-items:center; flex-wrap:wrap">
           <button class="btn-primary btn-lg" ?disabled=${modeBoards.length === 0 || anyPlaying || blocked} @click=${() => this.startPartida()}>
             ▶ Iniciar partida ${mode === 'wip' ? 'con WIP' : 'sin WIP'} (${rondas}×${ciclos}) en todos
           </button>
-          ${anyPlaying ? html`<span class="muted">Hay partidas en curso; espera a que terminen.</span>` : ''}
+          ${modeBoards.filter((b) => b.status === 'playing').map((b) => html`
+            <a class="btn btn-lg" href="/board?id=${b.id}">▶ Ir al tablero${modeBoards.length > 1 ? ` · ${this.teams.find((t) => t.id === b.teamId)?.name || ''}` : ''}</a>`)}
         </div>
-        <p class="muted" style="margin:0">Juega primero <strong>Sin WIP</strong> y luego <strong>Con WIP</strong> con la misma configuración. Durante la partida, el moderador puede añadir rondas o cambiar el WIP desde cada tablero.</p>
+        <p class="muted" style="margin:0">Flujo: <strong>1)</strong> Modo «Sin WIP» → Iniciar. <strong>2)</strong> Cuando termine, cambia el Modo a «Con WIP» y vuelve a Iniciar. Con «▶ Ir al tablero» vuelves al que esté en juego.</p>
       </div>
       ${this.me?.isAdmin ? this.renderCoFacilitators() : ''}
       ${this.tableStyles()}

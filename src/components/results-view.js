@@ -1,7 +1,7 @@
 import { LitElement, html } from 'lit';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../lib/firebase.js';
-import { watchBoard } from '../lib/db.js';
+import { watchBoard, watchBoards } from '../lib/db.js';
 import { watchGame } from '../lib/game.js';
 import * as R from '../lib/rules.js';
 import './cfd-chart.js';
@@ -38,6 +38,16 @@ export class ResultsView extends LitElement {
       }
     });
     this._wg = watchGame(this.boardId, (g) => { this.game = g; });
+    // Si arranca un tablero de MI equipo (p.ej. la ronda con WIP), el jugador entra solo.
+    this._wbl = watchBoards((list) => {
+      if (this.me?.isAdmin || !this.me?.uid || !this._teamId) return; // el facilitador no se mueve solo
+      const target = list.find((b) => b.id !== this.boardId && b.teamId === this._teamId
+        && b.status === 'playing' && b.roleAssignments && b.roleAssignments[this.me.uid]);
+      if (target && !sessionStorage.getItem('kbg.entered.' + target.id)) {
+        sessionStorage.setItem('kbg.entered.' + target.id, '1');
+        window.location.href = '/board?id=' + target.id;
+      }
+    });
   }
   _subResults(t) {
     this._wrn?.(); this._wrw?.();
@@ -46,7 +56,7 @@ export class ResultsView extends LitElement {
   }
   disconnectedCallback() {
     super.disconnectedCallback();
-    this._wb?.(); this._wg?.(); this._wt?.(); this._wrn?.(); this._wrw?.();
+    this._wb?.(); this._wg?.(); this._wt?.(); this._wrn?.(); this._wrw?.(); this._wbl?.();
   }
 
   colName(columns, colId) {
