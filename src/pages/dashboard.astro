@@ -9,8 +9,8 @@ import Layout from '../layouts/Layout.astro';
       <div class="flex-between">
         <h1>Mis partidas</h1>
         <div class="row" style="gap:8px">
-          <a class="btn btn-sm" href="https://docs.google.com/presentation/d/1yBg-dKxUTUZg30WyiKdnDquwuPcX-9sn/present" target="_blank" rel="noopener">🖥️ Presentación</a>
-          <a class="btn btn-sm" href="/guia">📋 Guía del debrief</a>
+          <a class="btn btn-sm" id="presentationLink" href="https://docs.google.com/presentation/d/1yBg-dKxUTUZg30WyiKdnDquwuPcX-9sn/present" target="_blank" rel="noopener" hidden>🖥️ Presentación</a>
+          <a class="btn btn-sm" id="guiaLink" href="/guia" hidden>📋 Guía del debrief</a>
           <a class="btn btn-primary" id="adminLink" href="/admin" hidden>+ Administración</a>
         </div>
       </div>
@@ -40,7 +40,12 @@ import Layout from '../layouts/Layout.astro';
     const isAdmin = profile?.role === 'admin';
     document.getElementById('loading').remove();
     document.getElementById('content').hidden = false;
-    if (isAdmin) document.getElementById('adminLink').hidden = false;
+    if (isAdmin) {
+      // Material de facilitador (debrief y presentación): solo admin.
+      document.getElementById('adminLink').hidden = false;
+      document.getElementById('guiaLink').hidden = false;
+      document.getElementById('presentationLink').hidden = false;
+    }
 
     let teams = {};
     let partidas = {};
@@ -54,6 +59,9 @@ import Layout from '../layouts/Layout.astro';
       const host = document.getElementById('boards');
       const empty = document.getElementById('empty');
 
+      const myRole = mine[0]?.roleAssignments?.[user.uid] || null;
+      renderRules(myRole); // siempre, aunque no estés en ningún tablero (p.ej. admin)
+
       if (mine.length === 0) {
         host.innerHTML = '';
         empty.hidden = false;
@@ -63,9 +71,6 @@ import Layout from '../layouts/Layout.astro';
         return;
       }
       empty.hidden = true;
-
-      const myRole = mine[0]?.roleAssignments?.[user.uid] || null;
-      renderRules(myRole);
 
       // Una partida = el equipo del jugador con sus 2 tableros (sin/con WIP). Agrupar por equipo.
       const groups = {};
@@ -159,6 +164,7 @@ import Layout from '../layouts/Layout.astro';
             <li>&nbsp;&nbsp;• <strong>3 o más</strong> → avanza a la siguiente columna (Refinement → Desarrollo → Revisión PR).</li>
             <li>&nbsp;&nbsp;• <strong>1 o 2</strong> → no avanza este turno.</li>
             <li><strong>Revisar PR:</strong> con 3+, pasa una historia de <strong>Revisión PR → QA</strong>.</li>
+            <li>👥 <strong>Pair (historias de 8 o 13):</strong> para avanzarlas hace falta <strong>otro Dev libre</strong> (lo coge el sistema solo). Salen <strong>2 dados</strong> y avanza si la <strong>suma ≥ 5</strong>; gasta el turno de los dos.</li>
             <li>Una acción por Dev y turno.</li>
           </ul>`,
         QA: `
@@ -179,13 +185,15 @@ import Layout from '../layouts/Layout.astro';
       const active = (myRole && panels[myRole]) ? myRole : 'general';
 
       host.innerHTML = `
-        <div class="card stack">
-          <h2 style="margin:0">Reglas del juego</h2>
-          <div class="rule-tabs">
-            ${tabs.map((t) => `<button class="${t.id === active ? 'btn-primary' : ''}" data-tab="${t.id}">${t.label}</button>`).join('')}
+        <details class="card" style="padding:0">
+          <summary style="cursor:pointer; padding:14px 16px; font-weight:700; font-size:1.05rem">📖 Reglas del juego <span class="muted" style="font-weight:400">— despliega para verlas</span></summary>
+          <div style="padding:0 16px 16px">
+            <div class="rule-tabs">
+              ${tabs.map((t) => `<button class="${t.id === active ? 'btn-primary' : ''}" data-tab="${t.id}">${t.label}</button>`).join('')}
+            </div>
+            ${tabs.map((t) => `<div class="rule-panel ${t.id === active ? 'active' : ''}" data-panel="${t.id}">${panels[t.id]}</div>`).join('')}
           </div>
-          ${tabs.map((t) => `<div class="rule-panel ${t.id === active ? 'active' : ''}" data-panel="${t.id}">${panels[t.id]}</div>`).join('')}
-        </div>`;
+        </details>`;
 
       host.querySelectorAll('[data-tab]').forEach((btn) => {
         btn.onclick = () => {

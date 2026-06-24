@@ -559,7 +559,7 @@ export class GameBoard extends LitElement {
         <span class="num">#${card.number}</span>
         ${card.business ? html`<span class="pts" title="Negocio ${card.business} · Dev ${card.dev ?? '—'}">${card.business}<span class="sep">/</span>${card.dev ?? '·'}</span>` : ''}
         ${prio ? html`<span class="prio ${prioClass}" title="Prioridad (valor/esfuerzo)">${prio}</span>` : ''}
-        ${R.needsPair(card) ? html`<span class="pairmark" title="Fibonacci > 8: se hace en pair">👥</span>` : ''}
+        ${R.needsPair(card) ? html`<span class="pairmark" title="Fibonacci 8 o 13: se hace en pair">👥</span>` : ''}
         ${claimer ? html`<span class="claimmark" title="${claimedByMe ? 'La tienes tú' : this.nameOf(claimer)}">${claimedByMe ? '✋' : '🔒'}</span>` : ''}
         ${card.bug ? html`<span class="bugmark" title="Tiene un bug">🐞</span>` : ''}
       </div>

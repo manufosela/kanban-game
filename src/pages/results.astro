@@ -15,11 +15,12 @@ import Layout from '../layouts/Layout.astro';
     const id = new URLSearchParams(location.search).get('id');
     if (!id) { window.location.replace('/dashboard'); }
 
-    await requireAuth();
+    const { profile } = await requireAuth();
     document.getElementById('loading').remove();
 
     const el = new ResultsView();
     el.boardId = id;
+    el.me = { isAdmin: profile?.role === 'admin' }; // material de facilitador solo para admin
     document.getElementById('mount').appendChild(el);
   </script>
 </Layout>

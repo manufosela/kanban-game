@@ -32,7 +32,7 @@ export const PAIR_SUM_MIN = 5;
 export const BUSINESS_MIN = 1;            // puntos de negocio en Backlog: 1..5
 export const BUSINESS_MAX = 5;
 export const FIB_DECK = [1, 2, 3, 5, 8, 13]; // estimación Fibonacci al entrar en Refinement
-export const PAIR_FIB_OVER = 8;           // Fibonacci > 8 (=13) ⇒ pair obligatorio
+export const PAIR_FIB_MIN = 8;            // Fibonacci ≥ 8 (8 y 13) ⇒ pair obligatorio
 
 /** Puntos de negocio aleatorios (1..5). */
 export function randomBusiness() {
@@ -51,9 +51,9 @@ export function priorityOf(card) {
   if (!card || !card.dev || !card.business) return 0;
   return Math.round((card.business / card.dev) * 100);
 }
-/** Una historia con Fibonacci > 8 debe desarrollarse en pair. */
+/** Una historia con Fibonacci ≥ 8 (8 o 13) debe desarrollarse en pair. */
 export function needsPair(card) {
-  return !!card && card.dev > PAIR_FIB_OVER;
+  return !!card && card.dev >= PAIR_FIB_MIN;
 }
 /** Cuenta roles (PM/DEV/QA) de un mapa de asignaciones (incluye bots). */
 export function countRoles(roleAssignments) {
