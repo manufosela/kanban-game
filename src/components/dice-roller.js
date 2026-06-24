@@ -84,9 +84,13 @@ export class DiceRoller extends LitElement {
     if (!changed.has('signal')) return;
     const sig = this.signal;
     if (!sig || sig.at == null) return;
-    const vals = Array.isArray(sig.values) ? sig.values : Object.values(sig.values || {});
-    if (this._seenAt === undefined) { this._seenAt = sig.at; return; } // no animar al montar
-    if (sig.at !== this._seenAt) { this._seenAt = sig.at; this.animateTo(vals); }
+    const vals = (Array.isArray(sig.values) ? sig.values : Object.values(sig.values || {})).map(Number);
+    if (!vals.length || this._rolling) return;
+    const isNew = this._seenAt !== undefined && sig.at !== this._seenAt;
+    this._seenAt = sig.at;
+    this.count = vals.length;
+    this._values = vals;             // FIABLE: la cara muestra siempre el último resultado
+    if (isNew) this.animateTo(vals); // animación opcional por encima
   }
 
   /** Anima el dado hasta `values` SIN emitir evento. Para mostrar tiradas ajenas (bots, otros jugadores). */
