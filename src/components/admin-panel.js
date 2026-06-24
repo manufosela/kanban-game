@@ -114,19 +114,22 @@ export class AdminPanel extends LitElement {
   // ---- Listas filtradas a la partida activa (las colecciones son planas con partidaId) ----
   get pTeams() { return this.teams.filter((t) => t.partidaId === this.currentPartidaId); }
   get pBoards() { return this.boards.filter((b) => b.partidaId === this.currentPartidaId); }
-  // Personas de esta partida + las "libres" (sin partida, p.ej. de una partida borrada): reutilizables.
-  get pInvited() { return this.invited.filter((iv) => iv.partidaId === this.currentPartidaId || iv.partidaId == null); }
+  // Pre-registrados de ESTA partida. Los "libres" (sin partida, p.ej. de una borrada) no se
+  // muestran aquí para no ensuciar; vuelven a asociarse si re-registras su email.
+  get pInvited() { return this.invited.filter((iv) => iv.partidaId === this.currentPartidaId); }
   /** uids reales que son miembros de algún equipo de la partida activa. */
   partidaUserIds() {
     const s = new Set();
     this.pTeams.forEach((t) => Object.keys(t.members || {}).forEach((u) => { if (!isBotId(u)) s.add(u); }));
     return s;
   }
-  /** Personas (no bots) ya asignadas a un equipo DE ESTA partida. Una persona puede estar
-   *  en otras partidas a la vez; aquí solo se evita meterla en 2 equipos de la misma. */
-  assignedInPartida() {
+  /** Personas (no bots) que YA están en algún equipo de CUALQUIER partida. Se usa como filtro
+   *  de "libres": quien ya está colocado en otra partida no aparece como disponible aquí, así
+   *  una partida recién creada sale vacía. Para meter a alguien que ya está en otra, primero
+   *  hay que liberarlo (quitarlo de su equipo) o usar su login. */
+  assignedAnywhere() {
     const s = new Set();
-    this.pTeams.forEach((t) => Object.keys(t.members || {}).forEach((u) => { if (!isBotId(u)) s.add(u); }));
+    this.teams.forEach((t) => Object.keys(t.members || {}).forEach((u) => { if (!isBotId(u)) s.add(u); }));
     return s;
   }
 
@@ -305,7 +308,7 @@ export class AdminPanel extends LitElement {
   /** Construye la lista unificada de personas de la partida (miembros + pendientes + libres con cuenta). */
   peopleRows() {
     const memberIds = this.partidaUserIds();
-    const assigned = this.assignedInPartida();
+    const assigned = this.assignedAnywhere();
     const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
     const teamOf = (uid) => this.pTeams.find((t) => t.members && t.members[uid] != null);
     const rows = [];
@@ -631,7 +634,7 @@ export class AdminPanel extends LitElement {
   openAddPeople(t) {
     // Candidatos: invitados de ESTA partida sin equipo + usuarios reales libres (sin equipo en ninguna partida).
     // Se excluyen los pendientes que ya tienen cuenta real (mismo email normalizado): evita duplicados.
-    const assigned = this.assignedInPartida();
+    const assigned = this.assignedAnywhere();
     const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
     const roleOrder = { PM: 0, DEV: 1, QA: 2, '': 3 };
     const cands = [
@@ -708,7 +711,7 @@ export class AdminPanel extends LitElement {
   }
   /** Personas con rol real disponibles para esta partida (invitados de la partida + reales libres). */
   unassignedPeople() {
-    const assigned = this.assignedInPartida();
+    const assigned = this.assignedAnywhere();
     const people = [];
     this.users.forEach((u) => { if (u.defaultRole && !assigned.has(u.id)) people.push({ id: u.id, role: u.defaultRole, invited: false, name: u.name || u.email }); });
     this.pInvited.forEach((iv) => { if (iv.role && !iv.teamId) people.push({ id: iv.id, role: iv.role, invited: true, name: iv.name || iv.email }); });
@@ -726,7 +729,7 @@ export class AdminPanel extends LitElement {
   }
   /** Personas sin asignar (reales + pre-registradas), con su rol preferido si lo tienen. */
   unassignedPool() {
-    const assigned = this.assignedInPartida();
+    const assigned = this.assignedAnywhere();
     const realNorms = new Set(this.users.map((u) => normalizeEmail(u.email)));
     return [
       ...this.users.filter((u) => u.role !== 'admin' && !assigned.has(u.id)).map((u) => ({ id: u.id, invited: false, pref: u.defaultRole || '', name: u.name || u.email })),
