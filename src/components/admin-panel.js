@@ -11,7 +11,7 @@ import {
   watchPartidaFacilitators, setPartidaFacilitator, findUserPartida,
   migrateLegacyToPartida1, setTeamBacklog,
 } from '../lib/db.js';
-import { startPartidaForBoards } from '../lib/game.js';
+import { startPartidaForBoards, startGame } from '../lib/game.js';
 import { defaultColumns, suggestedWipByAnchor, anchors, orderedColumns } from '../lib/rules.js';
 import { BACKLOGS, backlogOptions } from '../lib/backlogs.js';
 import { planByRole, teamRoleCounts } from '../lib/teams.js';
@@ -997,7 +997,10 @@ export class AdminPanel extends LitElement {
                   </td>
                   <td>${c.total}${c.pend ? html` <span class="muted">(${c.pend} pend.)</span>` : ''}</td>
                   <td>${b.status || 'setup'}</td>
-                  <td><a class="btn btn-sm" href="/board?id=${b.id}">▶ Abrir</a> <a class="btn btn-sm" href="/results?id=${b.id}">📊</a></td>
+                  <td>
+                    ${b.status !== 'playing' && b.status !== 'finished' && c.total > 0
+                      ? html`<button class="btn btn-sm btn-primary" @click=${() => this.startOneBoard(b)}>▶ Iniciar este</button> ` : ''}
+                    <a class="btn btn-sm" href="/board?id=${b.id}">▶ Abrir</a> <a class="btn btn-sm" href="/results?id=${b.id}">📊</a></td>
                 </tr>`;
               })}
             </tbody>
@@ -1141,6 +1144,26 @@ export class AdminPanel extends LitElement {
     // Con un único tablero (típico en demos) abre directamente; con varios, deja la tabla con «Abrir».
     if (modeBoards.length === 1) { location.href = `/board?id=${modeBoards[0].id}`; return; }
     toast(`Partida iniciada en ${modeBoards.length} tablero(s). Pulsa «Abrir» en cada uno para verlos.`, 'success', 5000);
+  }
+
+  /** Arranca UN solo tablero (equipo que llega tarde / recreado) con la config de la sesión y su
+   *  modo. Juega a su ritmo aunque el resto ya esté en curso. */
+  async startOneBoard(b) {
+    if (!b.teamId) return toast('Ese tablero no tiene equipo.', 'error');
+    if (this.teamCounts(b.teamId).total === 0) return toast('El equipo no tiene a nadie asignado.', 'error');
+    if (b.status === 'playing') return toast('Ese tablero ya está en juego.', 'warning');
+    const wipEnabled = b.mode === 'wip';
+    const rondas = this.session?.rondas ?? 2;
+    const ciclos = this.session?.ciclos ?? 7;
+    const name = this.teams.find((t) => t.id === b.teamId)?.name || b.name;
+    const ok = await confirmDialog(
+      `¿Iniciar SOLO el tablero «${name}» (${wipEnabled ? 'con WIP' : 'sin WIP'}, ${rondas}×${ciclos})? Empezará aunque el resto ya esté en curso; jugará a su ritmo.`,
+      { title: 'Iniciar este tablero' });
+    if (!ok) return;
+    await this.assignBacklogs(); // asegura que el equipo tiene proyecto
+    await startGame(b, { wipEnabled, rondas, ciclos, timeLimitMinutes: this.session?.timeLimitMinutes ?? null, pauseBetweenRounds: this.session?.pauseBetweenRounds || false });
+    toast('Tablero iniciado.', 'success');
+    location.href = `/board?id=${b.id}`;
   }
 
   tableStyles() {
