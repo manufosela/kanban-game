@@ -15,6 +15,7 @@ import Layout from '../layouts/Layout.astro';
         </div>
       </div>
       <div id="boards" class="grid grid-2" style="margin-top:16px"></div>
+      <div id="lobby" style="margin-top:16px" hidden></div>
       <div id="empty" class="empty-state" hidden>
         <p>Todavía no estás en ninguna partida.</p>
         <p class="muted" id="emptyHint"></p>
@@ -35,6 +36,7 @@ import Layout from '../layouts/Layout.astro';
   <script>
     import { requireAuth } from '../lib/session.js';
     import { watchBoards, watchTeams, watchPartidas } from '../lib/db.js';
+    import '../components/lobby-view.js';
 
     const { user, profile } = await requireAuth();
     const isAdmin = profile?.role === 'admin';
@@ -54,6 +56,14 @@ import Layout from '../layouts/Layout.astro';
     watchPartidas((list) => { partidas = Object.fromEntries(list.map((p) => [p.id, p])); render(); });
     watchBoards((list) => { boards = list; render(); });
 
+    let lobbyEl = null;
+    function showLobby() {
+      const c = document.getElementById('lobby');
+      if (!lobbyEl) { lobbyEl = document.createElement('kbg-lobby'); lobbyEl.me = { uid: user.uid }; c.appendChild(lobbyEl); }
+      c.hidden = false;
+    }
+    function hideLobby() { const c = document.getElementById('lobby'); if (c) c.hidden = true; }
+
     function render() {
       const mine = boards.filter((b) => b.roleAssignments && b.roleAssignments[user.uid]);
       const host = document.getElementById('boards');
@@ -64,13 +74,20 @@ import Layout from '../layouts/Layout.astro';
 
       if (mine.length === 0) {
         host.innerHTML = '';
-        empty.hidden = false;
-        document.getElementById('emptyHint').textContent = isAdmin
-          ? 'Crea equipos y asígnate (o usa Administración).'
-          : 'El facilitador te incluirá en un equipo en breve.';
+        if (isAdmin) {
+          // El admin gestiona desde Administración; no necesita el lobby.
+          empty.hidden = false;
+          document.getElementById('emptyHint').textContent = 'Crea equipos y asígnate (o usa Administración).';
+          hideLobby();
+        } else {
+          // El jugador se auto-asigna: elige equipo y rol.
+          empty.hidden = true;
+          showLobby();
+        }
         return;
       }
       empty.hidden = true;
+      hideLobby();
 
       // Una partida = el equipo del jugador con sus 2 tableros (sin/con WIP). Agrupar por equipo.
       const groups = {};
