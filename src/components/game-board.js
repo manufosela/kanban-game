@@ -1,7 +1,7 @@
 import { LitElement, html } from 'lit';
 import {
   watchBoard, watchBoards, watchUsers, watchFacilitators, watchBots, watchInvited, isBotId,
-  watchTeam, claimTeamFacilitator, addLocalToTeam,
+  watchTeam, claimTeamFacilitator, addLocalToTeam, completeTeamWithBots,
   getBoard, getTeam, getPartida,
 } from '../lib/db.js';
 import {
@@ -426,9 +426,17 @@ export class GameBoard extends LitElement {
           @keydown=${(e) => { if (e.key === 'Enter') this.addLocalPlayer(); }}>
         <select id="localRole" ?disabled=${!free.length}>${free.map((r) => html`<option value=${r}>${r}</option>`)}</select>
         <button class="btn-sm btn-primary" ?disabled=${!free.length} @click=${() => this.addLocalPlayer()}>➕ Añadir presencial</button>
+        <button class="btn-sm" title="Rellena los huecos que falten hasta 1 PM · 1 QA · 3 DEV" @click=${() => this.completeBots()}>🤖 Completar con bots</button>
         ${!free.length ? html`<span class="muted">equipo completo</span>` : ''}
       </div>
     </div>`;
+  }
+  async completeBots() {
+    if (!this.team) return;
+    try {
+      const added = await completeTeamWithBots(this.team);
+      toast(added.length ? `Añadidos ${added.length} bot(s): ${added.join(', ')}` : 'El equipo ya estaba completo', 'success');
+    } catch (e) { console.error(e); toast('No se pudo completar con bots (solo facilitador del equipo o admin).', 'error'); }
   }
   async addLocalPlayer() {
     const nameEl = this.querySelector('#localName');
