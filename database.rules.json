@@ -21,8 +21,11 @@
         ".validate": "newData.hasChildren(['name'])",
         "members": {
           "$uid": {
-            ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+            ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin' || (!data.exists() && newData.exists() && root.child('teams').child($teamId).child('facilitatorUid').val() === auth.uid))"
           }
+        },
+        "localNames": {
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('teams').child($teamId).child('facilitatorUid').val() === auth.uid)"
         },
         "facilitatorUid": {
           ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (!data.exists() && newData.val() === auth.uid))"
@@ -37,7 +40,7 @@
         ".validate": "newData.hasChildren(['name'])",
         "roleAssignments": {
           "$uid": {
-            ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+            ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin' || (!data.exists() && newData.exists() && root.child('teams').child(root.child('boards').child($boardId).child('teamId').val()).child('facilitatorUid').val() === auth.uid))"
           }
         },
         "round": {
