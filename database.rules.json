@@ -73,7 +73,10 @@
 
     "bots": {
       ".read": "auth != null",
-      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$bid": {
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (newData.exists() && root.child('teams').child(newData.child('teamId').val()).child('facilitatorUid').val() === auth.uid))"
+      }
     },
 
     "games": {

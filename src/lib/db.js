@@ -183,7 +183,7 @@ export function watchBots(cb) {
 export async function addBotToTeam(team, role, name) {
   const botId = newId('bot');
   const updates = {};
-  updates[`bots/${botId}`] = { name: name || 'Bot', createdAt: serverTimestamp(), partidaId: team.partidaId || null };
+  updates[`bots/${botId}`] = { name: name || 'Bot', createdAt: serverTimestamp(), partidaId: team.partidaId || null, teamId: team.id };
   updates[`teams/${team.id}/members/${botId}`] = role;
   for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) updates[`boards/${bid}/roleAssignments/${botId}`] = role;
   await update(ref(db), updates);
@@ -201,6 +201,22 @@ export async function removeBotFromTeam(team, botId) {
   updates[`teams/${team.id}/members/${botId}`] = null;
   for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) updates[`boards/${bid}/roleAssignments/${botId}`] = null;
   await update(ref(db), updates);
+}
+
+/** Completa el equipo con bots hasta una composición objetivo (no quita nada). Devuelve roles añadidos. */
+export async function completeTeamWithBots(team, target = { PM: 1, QA: 1, DEV: 3 }) {
+  const c = { PM: 0, DEV: 0, QA: 0 };
+  Object.values(team.members || {}).forEach((r) => { if (c[r] != null) c[r] += 1; });
+  const added = [];
+  for (const role of ['PM', 'QA', 'DEV']) {
+    const need = (target[role] || 0) - c[role];
+    for (let i = 0; i < need; i++) {
+      const n = c[role] + i + 1;
+      await addBotToTeam(team, role, `Bot ${role}${(target[role] || 0) > 1 ? ` ${n}` : ''}`);
+      added.push(role);
+    }
+  }
+  return added;
 }
 
 // ---- Jugadores locales/presenciales (sin cuenta; los opera el facilitador del equipo) ----
