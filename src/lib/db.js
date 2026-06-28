@@ -203,6 +203,25 @@ export async function removeBotFromTeam(team, botId) {
   await update(ref(db), updates);
 }
 
+// ---- Jugadores locales/presenciales (sin cuenta; los opera el facilitador del equipo) ----
+export function isLocalId(id) { return typeof id === 'string' && id.startsWith('local_'); }
+export async function addLocalToTeam(team, role, name) {
+  const lid = newId('local');
+  const updates = {};
+  updates[`teams/${team.id}/members/${lid}`] = role;
+  updates[`teams/${team.id}/localNames/${lid}`] = name || 'Presencial';
+  for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) updates[`boards/${bid}/roleAssignments/${lid}`] = role;
+  await update(ref(db), updates);
+  return lid;
+}
+export async function removeLocalFromTeam(team, lid) {
+  const updates = {};
+  updates[`teams/${team.id}/members/${lid}`] = null;
+  updates[`teams/${team.id}/localNames/${lid}`] = null;
+  for (const bid of [team.boardNoWip, team.boardWip].filter(Boolean)) updates[`boards/${bid}/roleAssignments/${lid}`] = null;
+  await update(ref(db), updates);
+}
+
 // ---- Sesión del facilitador (modo activo + tiempo) ----
 export function watchSession(cb) {
   return onValue(ref(db, 'session'), (s) => cb(s.exists() ? s.val() : { mode: 'nowip', timeLimitMinutes: null }));

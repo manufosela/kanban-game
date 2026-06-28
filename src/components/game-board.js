@@ -1,7 +1,7 @@
 import { LitElement, html } from 'lit';
 import {
   watchBoard, watchBoards, watchUsers, watchFacilitators, watchBots, watchInvited, isBotId,
-  watchTeam, claimTeamFacilitator,
+  watchTeam, claimTeamFacilitator, addLocalToTeam,
   getBoard, getTeam, getPartida,
 } from '../lib/db.js';
 import {
@@ -80,6 +80,7 @@ export class GameBoard extends LitElement {
 
   nameOf(uid) {
     if (isBotId(uid)) { const b = this.bots.find((x) => x.id === uid); return `🤖 ${b?.name || 'Bot'}`; }
+    if (typeof uid === 'string' && uid.startsWith('local_')) { return `🧑 ${this.team?.localNames?.[uid] || 'Presencial'}`; }
     if (typeof uid === 'string' && uid.startsWith('inv_')) {
       const iv = this.invited.find((x) => x.id === uid);
       return `⏳ ${iv?.name || iv?.email || 'pendiente'}`; // pre-registrado, aún sin login
@@ -278,6 +279,7 @@ export class GameBoard extends LitElement {
       ${this.renderTopBar()}
       ${R.urgentActive(this.game) ? html`<div class="urgent-banner">🔥 Historia <strong>URGENT</strong> en curso: el desarrollo normal está en pausa hasta sacarla.</div>` : ''}
       ${this.renderLastRoll()}
+      ${this.renderTeamManage()}
       <div class="playarea">
         <div class="playmain">
           ${this.renderColumns()}
@@ -401,6 +403,45 @@ export class GameBoard extends LitElement {
     if (!this.team || this.team.facilitatorUid) return;
     try { await claimTeamFacilitator(this.team.id, this.me.uid); toast('Eres el facilitador del equipo', 'success'); }
     catch (e) { console.error(e); toast('No se pudo (quizá ya hay facilitador).', 'error'); }
+  }
+
+  roleCounts() {
+    const c = { PM: 0, DEV: 0, QA: 0 };
+    Object.values(this.team?.members || {}).forEach((r) => { if (c[r] != null) c[r] += 1; });
+    return c;
+  }
+  freeRoles() {
+    const c = this.roleCounts();
+    const cap = { PM: 1, QA: 1, DEV: 4 };
+    return ['PM', 'DEV', 'QA'].filter((r) => c[r] < cap[r]);
+  }
+  /** Panel del facilitador de equipo (y admin): alta de jugadores presenciales (sin cuenta). */
+  renderTeamManage() {
+    if (!this.team || !(this.amTeamFacilitator || this.isMod)) return '';
+    const free = this.freeRoles();
+    return html`<div class="card teammanage" style="margin-bottom:12px">
+      <div class="row" style="gap:8px; flex-wrap:wrap; align-items:center">
+        <strong>🎛 Equipo</strong>
+        <input id="localName" placeholder="Nombre (jugador presencial, sin login)" style="flex:1; min-width:160px"
+          @keydown=${(e) => { if (e.key === 'Enter') this.addLocalPlayer(); }}>
+        <select id="localRole" ?disabled=${!free.length}>${free.map((r) => html`<option value=${r}>${r}</option>`)}</select>
+        <button class="btn-sm btn-primary" ?disabled=${!free.length} @click=${() => this.addLocalPlayer()}>➕ Añadir presencial</button>
+        ${!free.length ? html`<span class="muted">equipo completo</span>` : ''}
+      </div>
+    </div>`;
+  }
+  async addLocalPlayer() {
+    const nameEl = this.querySelector('#localName');
+    const roleEl = this.querySelector('#localRole');
+    const name = (nameEl?.value || '').trim();
+    const role = roleEl?.value;
+    if (!name) return toast('Escribe un nombre', 'warning');
+    if (!role) return toast('No quedan huecos de rol', 'warning');
+    try {
+      await addLocalToTeam(this.team, role, name);
+      toast(`${name} añadido como ${role}`, 'success');
+      if (nameEl) nameEl.value = '';
+    } catch (e) { console.error(e); toast('No se pudo añadir (solo el facilitador del equipo o admin).', 'error'); }
   }
 
   /** Selector de rol del propio jugador (y, si es admin, de cualquiera vía panel aparte). */
