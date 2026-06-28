@@ -1,6 +1,7 @@
 import { LitElement, html } from 'lit';
 import {
   watchBoard, watchBoards, watchUsers, watchFacilitators, watchBots, watchInvited, isBotId,
+  watchTeam, claimTeamFacilitator,
   getBoard, getTeam, getPartida,
 } from '../lib/db.js';
 import {
@@ -22,6 +23,7 @@ export class GameBoard extends LitElement {
     boardId: { type: String, attribute: 'board-id' },
     me: { attribute: false },
     board: { state: true },
+    team: { state: true },
     game: { state: true },
     users: { state: true },
     facilitators: { state: true },
@@ -54,7 +56,14 @@ export class GameBoard extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    this._wb = watchBoard(this.boardId, (b) => { this.board = b; });
+    this._wb = watchBoard(this.boardId, (b) => {
+      this.board = b;
+      if (b?.teamId && b.teamId !== this._teamId) {
+        this._teamId = b.teamId;
+        this._wteam?.();
+        this._wteam = watchTeam(b.teamId, (t) => { this.team = t; });
+      }
+    });
     this._wg = watchGame(this.boardId, (g) => { this.game = g; });
     this._wbl = watchBoards((l) => { this.allBoards = l; });
     this._wu = watchUsers((l) => { this.users = l; });
@@ -64,7 +73,7 @@ export class GameBoard extends LitElement {
   }
   disconnectedCallback() {
     super.disconnectedCallback();
-    this._wb?.(); this._wg?.(); this._wbl?.(); this._wu?.(); this._wf?.(); this._wbots?.(); this._wi?.();
+    this._wb?.(); this._wg?.(); this._wbl?.(); this._wu?.(); this._wf?.(); this._wbots?.(); this._wi?.(); this._wteam?.();
     if (this._botTimer) { clearTimeout(this._botTimer); this._botTimer = null; }
     this._ghostLayer?.remove(); this._ghostLayer = null;
   }
@@ -232,9 +241,14 @@ export class GameBoard extends LitElement {
   get actorIsMe() {
     const g = this.game;
     if (!g || g.status !== 'playing') return false;
-    if (this.isMod) return true;
+    if (this.isMod || this.amTeamFacilitator) return true;
     if (g.step === STEP.DEVS) return this.currentDevUid === this.me?.uid;
     return this.myGameRole === this.activeRole;
+  }
+  /** ¿Soy el facilitador de ESTE equipo? Puede operar las jugadas de su equipo (híbrido). */
+  get amTeamFacilitator() {
+    const fac = this.team?.facilitatorUid;
+    return !!fac && !!this.me?.uid && fac === this.me.uid;
   }
 
   get myGameRole() { return this.game?.roleAssignments?.[this.me?.uid] ?? this.board?.roleAssignments?.[this.me?.uid] ?? null; }
@@ -243,7 +257,7 @@ export class GameBoard extends LitElement {
   /** Moderador de la partida: admin de la app o co-facilitador de sesión. */
   get isMod() { return this.me?.isAdmin || (this.me?.uid && this.facilitators?.includes(this.me.uid)); }
   get activeRole() { return this.game ? STEP_ROLE[this.game.step] : null; }
-  get canAct() { return this.isMod || (this.myGameRole && this.myGameRole === this.activeRole); }
+  get canAct() { return this.isMod || this.amTeamFacilitator || (this.myGameRole && this.myGameRole === this.activeRole); }
   /** Enlace a Administración conservando la partida del tablero. */
   adminHref() { return this.board?.partidaId ? `/admin?partida=${this.board.partidaId}` : '/admin'; }
 
@@ -337,6 +351,7 @@ export class GameBoard extends LitElement {
           <h1 style="margin:4px 0">${this.board.name}</h1>
           <span class="tag ${g.wipEnabled ? 'role-QA' : ''}">Partida ${g.wipEnabled ? 'con WIP' : 'sin WIP'}</span>
           ${this.renderRolePicker()}
+          ${this.renderTeamFacilitator()}
         </div>
         <div class="status">
           <div class="turn">Ronda <strong>${ri.ronda}</strong>/${ri.rondas} · Ciclo <strong>${ri.cicloEnRonda}</strong>/${ri.ciclos}</div>
@@ -368,6 +383,24 @@ export class GameBoard extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  /** Facilitador de equipo: badge si lo hay; botón para reclamarlo si un miembro y está libre. */
+  renderTeamFacilitator() {
+    if (!this.team) return '';
+    const fac = this.team.facilitatorUid;
+    if (fac) {
+      return html`<div class="tag" style="margin-top:6px" title="Opera las jugadas del equipo (incl. jugadores sin dispositivo)">🎛 Facilitador: ${this.nameOf(fac)}${fac === this.me?.uid ? ' (tú)' : ''}</div>`;
+    }
+    if (this.myGameRole && this.me?.uid && !this.isAdmin) {
+      return html`<button class="btn-sm" style="margin-top:6px" title="Te encargas de tirar por tu equipo, incluidos los que no tengan dispositivo" @click=${() => this.claimFacilitator()}>🎛 Ser facilitador del equipo</button>`;
+    }
+    return '';
+  }
+  async claimFacilitator() {
+    if (!this.team || this.team.facilitatorUid) return;
+    try { await claimTeamFacilitator(this.team.id, this.me.uid); toast('Eres el facilitador del equipo', 'success'); }
+    catch (e) { console.error(e); toast('No se pudo (quizá ya hay facilitador).', 'error'); }
   }
 
   /** Selector de rol del propio jugador (y, si es admin, de cualquiera vía panel aparte). */
@@ -524,7 +557,7 @@ export class GameBoard extends LitElement {
     const qaValid = step === STEP.QA && card.col === a.id.qa && !card.blocked;
     let selectable = false;
     if (qaValid) selectable = this.canAct;
-    else if (devValid) selectable = (this.isMod || this.currentDevUid === this.me?.uid) && (!R.urgentActive(this.game) || card.urgent);
+    else if (devValid) selectable = (this.isMod || this.amTeamFacilitator || this.currentDevUid === this.me?.uid) && (!R.urgentActive(this.game) || card.urgent);
     const selected = this.selectedCardId === card.id;
     // Tarea normal en pausa porque hay una urgencia en curso (no está en Backlog ni Done).
     const paused = !card.urgent && R.urgentActive(this.game) && card.col !== a.id.backlog && card.col !== a.id.done;
@@ -625,7 +658,7 @@ export class GameBoard extends LitElement {
   ctrlDevs() {
     const g = this.game;
     const a = this.anchors();
-    const canFinish = this.isMod; // solo el facilitador; el PM no interviene en desarrollo
+    const canFinish = this.isMod || this.amTeamFacilitator; // facilitador (global o de equipo)
     const acted = g.devActed || {};
     const order = g.devOrder || [];
     const actor = this.currentDevUid; // el Dev de turno (humano, o asiento que conduce el facilitador)

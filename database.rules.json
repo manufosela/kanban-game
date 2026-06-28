@@ -23,6 +23,9 @@
           "$uid": {
             ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')"
           }
+        },
+        "facilitatorUid": {
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (!data.exists() && newData.val() === auth.uid))"
         }
       }
     },
