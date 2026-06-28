@@ -19,6 +19,17 @@ export function watchUsers(cb) {
 export function watchTeams(cb) {
   return onValue(ref(db, 'teams'), (s) => cb(toList(s.val())));
 }
+export function watchTeam(teamId, cb) {
+  return onValue(ref(db, `teams/${teamId}`), (s) => cb(s.exists() ? { id: teamId, ...s.val() } : null));
+}
+/** Un jugador se reclama facilitador de su equipo (uno por equipo: solo si está libre). */
+export async function claimTeamFacilitator(teamId, uid) {
+  await update(ref(db, `teams/${teamId}`), { facilitatorUid: uid });
+}
+/** El admin asigna o limpia (uid=null) el facilitador de un equipo. */
+export async function setTeamFacilitator(teamId, uid) {
+  await update(ref(db, `teams/${teamId}`), { facilitatorUid: uid || null });
+}
 export function watchBoards(cb) {
   return onValue(ref(db, 'boards'), (s) => cb(toList(s.val())));
 }
